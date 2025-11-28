@@ -6,4 +6,22 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+        <!-- SignalR client for communication with Api -->
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+        
+        <!-- Logging abstractions -->
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+        
+        <!-- DI abstractions -->
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+        
+        <!-- Options pattern -->
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Flekt.Computer.Abstractions\Flekt.Computer.Abstractions.csproj" />
+    </ItemGroup>
+
 </Project>

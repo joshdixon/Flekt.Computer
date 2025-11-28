@@ -390,3 +390,6 @@ Desktop.ini
 # typescript
 *.tsbuildinfo
 
+# Plan/documentation files (managed in main Flekt repo)
+*_PLAN.md
+*_IMPLEMENTATION_PLAN.md
