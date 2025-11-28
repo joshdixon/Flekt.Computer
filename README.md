@@ -28,11 +28,14 @@ await using var computer = await Computer.Create(new ComputerOptions
 });
 
 // Take a screenshot
-byte[] screenshot = await computer.Interface.Screenshot();
+byte[] screenshot = await computer.Interface.Screen.Screenshot();
 
 // Click and type
-await computer.Interface.LeftClick(100, 200);
-await computer.Interface.TypeText("Hello World!");
+await computer.Interface.Mouse.LeftClick(100, 200);
+await computer.Interface.Keyboard.Type("Hello World!");
+
+// Run a command
+var result = await computer.Interface.Shell.Run("dir");
 
 // Automatically cleaned up at end of scope
 ```
@@ -49,26 +52,17 @@ services.AddFlektComputer(options =>
 });
 
 // In your service
-public class MyService
+public class MyService(IComputerFactory computerFactory, ILogger<MyService> logger)
 {
-    private readonly IComputerFactory _computerFactory;
-    private readonly ILogger<MyService> _logger;
-
-    public MyService(IComputerFactory computerFactory, ILogger<MyService> logger)
-    {
-        _computerFactory = computerFactory;
-        _logger = logger;
-    }
-
     public async Task DoWork()
     {
-        await using var computer = await _computerFactory.Create(new ComputerOptions
+        await using var computer = await computerFactory.Create(new ComputerOptions
         {
             EnvironmentId = Guid.Parse("...")
         });
 
-        _logger.LogInformation("Taking screenshot...");
-        await computer.Interface.Screenshot();
+        logger.LogInformation("Taking screenshot...");
+        await computer.Interface.Screen.Screenshot();
     }
 }
 ```
@@ -80,7 +74,7 @@ var computer = new Computer(new ComputerOptions { ... }, logger);
 try
 {
     await computer.Run();
-    await computer.Interface.LeftClick(100, 200);
+    await computer.Interface.Mouse.LeftClick(100, 200);
 }
 finally
 {
@@ -98,309 +92,236 @@ finally
 
 ---
 
-## Project Structure
-
-```
-Flekt.Computer/
-├── Computer.cs                    # Main entry point (IAsyncDisposable)
-├── ComputerOptions.cs             # Per-instance configuration
-├── IComputerInterface.cs          # Control interface
-├── ComputerTracing.cs             # Session recording
-├── TracingWrapper.cs              # Auto-trace decorator
-├── DependencyInjection/
-│   ├── IComputerFactory.cs        # Factory for DI scenarios
-│   ├── ComputerFactory.cs         # Default factory implementation
-│   ├── FlektComputerOptions.cs    # Global DI configuration
-│   └── ServiceCollectionExtensions.cs  # AddFlektComputer() extension
-├── Providers/
-│   ├── IComputerProvider.cs       # Provider abstraction
-│   ├── CloudProvider.cs           # Cloud (Api → Host → Agent)
-│   ├── LocalHyperVProvider.cs     # Local HyperV (Host → Agent)
-│   └── DirectProvider.cs          # Direct to Agent
-├── Models/
-│   ├── ScreenSize.cs
-│   ├── CursorPosition.cs
-│   ├── CommandResult.cs
-│   ├── MouseButton.cs
-│   ├── MousePathPoint.cs
-│   └── MousePathOptions.cs
-└── Flekt.Computer.csproj
-```
-
----
-
-## Implementation Plan
-
-### Phase 1: Core Interfaces & Models
-
-- [ ] Create `Flekt.Computer.csproj`
-- [ ] Define `IComputerInterface` with all methods
-- [ ] Create model classes (`ScreenSize`, `CursorPosition`, `CommandResult`, `MouseButton`)
-- [ ] Define `ComputerOptions` with Environment/specs support
-- [ ] Define `ProviderType` enum
-
-### Phase 2: Provider Abstraction
-
-- [ ] Define `IComputerProvider` interface
-- [ ] Implement provider factory
-- [ ] Stub out `CloudProvider`, `LocalHyperVProvider`, `DirectProvider`
-
-### Phase 3: Computer Class
-
-- [ ] Implement `Computer` class (main entry point, implements `IAsyncDisposable`)
-- [ ] Add constructor accepting `ILogger<Computer>?` (optional)
-- [ ] Implement static `Computer.Create()` factory for inline `await using`
-- [ ] Implement `Run()` for manual lifecycle
-- [ ] Implement `DisposeAsync()` for cleanup (stops VM, closes connections)
-- [ ] Implement `Interface` property (returns `IComputerInterface`)
-
-### Phase 3b: Dependency Injection
-
-- [ ] Define `FlektComputerOptions` for global configuration
-- [ ] Define `IComputerFactory` interface
-- [ ] Implement `ComputerFactory` (injects ILogger, IOptions)
-- [ ] Implement `AddFlektComputer()` extension method for IServiceCollection
-
-### Phase 4: DirectProvider (First Working Provider)
-
-- [ ] Implement SignalR connection to Agent
-- [ ] Implement all `IComputerInterface` methods via SignalR
-- [ ] Add correlation ID tracking for request/response
-- [ ] Add connection state management and reconnection
-
-### Phase 5: Tracing
-
-- [ ] Implement `ComputerTracing` class
-- [ ] Implement `TracingWrapper` (decorator for IComputerInterface)
-- [ ] Add trace events for all API calls
-- [ ] Add screenshot capture on actions
-- [ ] Implement trace export (zip/directory)
-
-### Phase 6: LocalHyperVProvider
-
-- [ ] Connect to local Host via SignalR
-- [ ] Request VM creation with Environment/specs
-- [ ] Wait for Agent connection
-- [ ] Route commands through Host
-
-### Phase 7: CloudProvider
-
-- [ ] Connect to Computer.Api via SignalR
-- [ ] Authenticate with API key
-- [ ] Request computer session
-- [ ] Handle session establishment flow
-- [ ] Route commands through Api → Host → Agent
-
----
-
 ## IComputerInterface API
+
+The interface is organized into domain-specific sub-interfaces:
 
 ```csharp
 public interface IComputerInterface
 {
-    // Mouse - Simple
-    Task LeftClick(int? x = null, int? y = null);
-    Task RightClick(int? x = null, int? y = null);
-    Task DoubleClick(int? x = null, int? y = null);
-    Task MoveCursor(int x, int y);
-    Task MouseDown(int? x = null, int? y = null, MouseButton button = MouseButton.Left);
-    Task MouseUp(int? x = null, int? y = null, MouseButton button = MouseButton.Left);
-    
-    // Mouse - Path-based (complex movements)
-    Task MoveCursorPath(IEnumerable<MousePathPoint> path, MousePathOptions? options = null);
-    Task Drag(IEnumerable<MousePathPoint> path, MouseButton button = MouseButton.Left, MousePathOptions? options = null);
-    Task DragTo(int x, int y, MouseButton button = MouseButton.Left);  // Simple drag (current pos → target)
-    
-    // Keyboard
-    Task TypeText(string text);
-    Task PressKey(string key);
-    Task Hotkey(params string[] keys);
-    Task KeyDown(string key);
-    Task KeyUp(string key);
-    
-    // Scroll
-    Task Scroll(int x, int y);
-    Task ScrollDown(int clicks = 1);
-    Task ScrollUp(int clicks = 1);
-    
-    // Screen
-    Task<byte[]> Screenshot();
-    Task<ScreenSize> GetScreenSize();
-    Task<CursorPosition> GetCursorPosition();
-    
-    // Clipboard
-    Task<string> GetClipboard();
-    Task SetClipboard(string text);
-    
-    // Files
-    Task<bool> FileExists(string path);
-    Task<string> ReadText(string path);
-    Task WriteText(string path, string content);
-    Task<byte[]> ReadBytes(string path, int offset = 0, int? length = null);
-    Task WriteBytes(string path, byte[] content);
-    Task DeleteFile(string path);
-    Task<bool> DirectoryExists(string path);
-    Task CreateDirectory(string path);
-    Task DeleteDirectory(string path);
-    Task<string[]> ListDirectory(string path);
-    
-    // Shell
-    Task<CommandResult> RunCommand(string command);
-    
-    // Window Management
-    Task<string> GetCurrentWindowId();
-    Task<string> GetWindowName(string windowId);
-    Task<ScreenSize> GetWindowSize(string windowId);
-    Task ActivateWindow(string windowId);
-    Task CloseWindow(string windowId);
-    Task MaximizeWindow(string windowId);
-    Task MinimizeWindow(string windowId);
+    IMouse Mouse { get; }
+    IKeyboard Keyboard { get; }
+    IScreen Screen { get; }
+    IClipboard Clipboard { get; }
+    IFiles Files { get; }
+    IShell Shell { get; }
+    IWindows Windows { get; }
 }
 ```
 
-## ComputerTracing API
+### Mouse
 
 ```csharp
-public class ComputerTracing
-{
-    bool IsTracing { get; }
-    
-    Task Start(TracingConfig? config = null);
-    Task<string> Stop(StopOptions? options = null);
-    Task AddMetadata(string key, object value);
-}
-
-public class TracingConfig
-{
-    public bool Screenshots { get; set; } = true;
-    public bool ApiCalls { get; set; } = true;
-    public bool Video { get; set; } = false;
-    public string? Name { get; set; }
-    public string? Path { get; set; }
-}
-
-public class StopOptions
-{
-    public string? OutputPath { get; set; }  // Directory to save trace (default: ./traces/{name})
-}
+await computer.Interface.Mouse.LeftClick(100, 200);
+await computer.Interface.Mouse.RightClick();
+await computer.Interface.Mouse.DoubleClick(300, 400);
+await computer.Interface.Mouse.Move(500, 600);
+await computer.Interface.Mouse.Down();
+await computer.Interface.Mouse.Up();
+await computer.Interface.Mouse.DragTo(700, 800);
+await computer.Interface.Mouse.ScrollDown(3);
+await computer.Interface.Mouse.ScrollUp();
+var position = await computer.Interface.Mouse.GetPosition();
 ```
 
-## Dependency Injection API
+### Keyboard
 
 ```csharp
-// Global configuration (set once at startup)
-public class FlektComputerOptions
-{
-    public ProviderType DefaultProvider { get; set; } = ProviderType.Cloud;
-    public string? ApiBaseUrl { get; set; }
-    public string? ApiKey { get; set; }
-    public string? LocalHostUrl { get; set; }  // For LocalHyperV provider
-}
-
-// Factory interface for creating computers
-public interface IComputerFactory
-{
-    Task<Computer> Create(ComputerOptions options);
-    Task<Computer> Create(Guid environmentId);  // Convenience overload
-}
-
-// Extension method for registration
-public static class ServiceCollectionExtensions
-{
-    public static IServiceCollection AddFlektComputer(
-        this IServiceCollection services,
-        Action<FlektComputerOptions>? configure = null);
-}
+await computer.Interface.Keyboard.Type("Hello World!");
+await computer.Interface.Keyboard.Press("Enter");
+await computer.Interface.Keyboard.Hotkey(default, "Ctrl", "C");
+await computer.Interface.Keyboard.Down("Shift");
+await computer.Interface.Keyboard.Up("Shift");
 ```
 
-## Mouse Path Models
+### Screen
+
+```csharp
+byte[] screenshot = await computer.Interface.Screen.Screenshot();
+var size = await computer.Interface.Screen.GetSize();
+```
+
+### Clipboard
+
+```csharp
+string text = await computer.Interface.Clipboard.Get();
+await computer.Interface.Clipboard.Set("copied text");
+```
+
+### Files
+
+```csharp
+bool exists = await computer.Interface.Files.Exists("C:\\file.txt");
+string content = await computer.Interface.Files.ReadText("C:\\file.txt");
+await computer.Interface.Files.WriteText("C:\\file.txt", "content");
+byte[] bytes = await computer.Interface.Files.ReadBytes("C:\\file.bin");
+await computer.Interface.Files.WriteBytes("C:\\file.bin", bytes);
+await computer.Interface.Files.Delete("C:\\file.txt");
+await computer.Interface.Files.CreateDirectory("C:\\folder");
+string[] items = await computer.Interface.Files.ListDirectory("C:\\folder");
+```
+
+### Shell
+
+```csharp
+var result = await computer.Interface.Shell.Run("dir /b");
+Console.WriteLine(result.StandardOutput);
+Console.WriteLine($"Exit code: {result.ExitCode}");
+```
+
+### Windows
+
+```csharp
+string activeId = await computer.Interface.Windows.GetActiveId();
+var info = await computer.Interface.Windows.GetInfo(activeId);
+await computer.Interface.Windows.Activate(windowId);
+await computer.Interface.Windows.Close(windowId);
+await computer.Interface.Windows.Maximize(windowId);
+await computer.Interface.Windows.Minimize(windowId);
+var allWindows = await computer.Interface.Windows.List();
+```
+
+---
+
+## Mouse Path Operations
 
 For replaying complex recorded mouse movements:
 
 ```csharp
-/// <summary>
-/// A point in a mouse path with optional timing.
-/// </summary>
-public record MousePathPoint(
-    int X,
-    int Y,
-    TimeSpan? DelayFromPrevious = null  // Time since last point (null = no delay)
-);
-
-/// <summary>
-/// Options for path-based mouse operations.
-/// </summary>
-public class MousePathOptions
-{
-    /// <summary>
-    /// If true, respect the DelayFromPrevious timings in each point.
-    /// If false, move as fast as possible.
-    /// </summary>
-    public bool PreserveTimings { get; set; } = true;
-    
-    /// <summary>
-    /// Override total duration (scales all timings proportionally).
-    /// </summary>
-    public TimeSpan? TotalDuration { get; set; }
-    
-    /// <summary>
-    /// Speed multiplier (1.0 = normal, 2.0 = double speed, 0.5 = half speed).
-    /// </summary>
-    public double SpeedMultiplier { get; set; } = 1.0;
-}
-```
-
-### Usage Examples
-
-```csharp
 // Replay a recorded mouse path with original timings
-var recordedPath = new[]
+var recordedPath = new MousePathPoint[]
 {
-    new MousePathPoint(100, 100, TimeSpan.Zero),
-    new MousePathPoint(120, 105, TimeSpan.FromMilliseconds(16)),
-    new MousePathPoint(145, 112, TimeSpan.FromMilliseconds(16)),
-    new MousePathPoint(180, 120, TimeSpan.FromMilliseconds(16)),
-    new MousePathPoint(220, 125, TimeSpan.FromMilliseconds(16)),
+    MousePathPoint.At(100, 100),
+    MousePathPoint.At(120, 105, TimeSpan.FromMilliseconds(16)),
+    MousePathPoint.At(145, 112, TimeSpan.FromMilliseconds(16)),
+    MousePathPoint.At(180, 120, TimeSpan.FromMilliseconds(16)),
 };
 
-await computer.Interface.MoveCursorPath(recordedPath);
+await computer.Interface.Mouse.MovePath(recordedPath);
 
 // Replay at double speed
-await computer.Interface.MoveCursorPath(recordedPath, new MousePathOptions 
+await computer.Interface.Mouse.MovePath(recordedPath, new MousePathOptions 
 { 
     SpeedMultiplier = 2.0 
 });
 
-// Drag along a path (e.g., drawing, selecting)
-await computer.Interface.Drag(recordedPath, MouseButton.Left);
+// Drag along a path
+await computer.Interface.Mouse.Drag(recordedPath, MouseButton.Left);
 
 // Move as fast as possible (no delays)
-await computer.Interface.MoveCursorPath(recordedPath, new MousePathOptions 
-{ 
-    PreserveTimings = false 
-});
+await computer.Interface.Mouse.MovePath(recordedPath, MousePathOptions.Instant);
 ```
 
-### Converting from Flekt's InputEventData
+---
+
+## Environment Workflow
+
+Environments are reusable VM templates. Create a computer, configure it, then save as an environment:
 
 ```csharp
-// Helper to convert recorded inputs to path
-public static IEnumerable<MousePathPoint> ToMousePath(
-    IEnumerable<InputEventData> inputs, 
-    DateTimeOffset recordingStartedAt)
+// 1. Create a computer from base image
+await using var computer = await Computer.Create(new ComputerOptions
 {
-    DateTimeOffset? previousTime = null;
-    
-    foreach (var input in inputs.Where(i => i.EventType == InputEventType.MouseMove))
-    {
-        var delay = previousTime.HasValue 
-            ? input.Timestamp - previousTime.Value 
-            : TimeSpan.Zero;
-            
-        yield return new MousePathPoint(input.X!.Value, input.Y!.Value, delay);
-        previousTime = input.Timestamp;
-    }
-}
+    Vcpu = 8,
+    MemoryGb = 32,
+    Image = "windows-11-base",
+    Provider = ProviderType.Cloud,
+    ApiKey = "your-api-key"
+});
+
+// 2. Get RDP access to configure it
+var rdp = await computer.GetRdpAccess(TimeSpan.FromHours(4));
+Console.WriteLine($"Connect to {rdp.Server} as {rdp.Username}");
+// User connects via RDP, installs apps, configures settings...
+
+// 3. Save as reusable environment
+var environment = await computer.SaveAsEnvironment(new SaveEnvironmentOptions
+{
+    Name = "my-app-test-env",
+    Description = "Windows 11 with MyApp v2.3 installed"
+});
+
+Console.WriteLine($"Environment saved: {environment.Id}");
+```
+
+Now create computers from that environment:
+
+```csharp
+// Spin up identical computers from the saved environment
+await using var testComputer = await Computer.Create(new ComputerOptions
+{
+    EnvironmentId = environment.Id,  // Uses saved image + specs
+    Provider = ProviderType.Cloud,
+    ApiKey = "your-api-key"
+});
+
+// Starts with exact same state as when saved!
+```
+
+---
+
+## Tracing
+
+Record sessions for debugging and analysis:
+
+```csharp
+// Start tracing
+await computer.Tracing.Start(new TracingConfig
+{
+    CaptureScreenshots = true,
+    RecordApiCalls = true,
+    Name = "my-session"
+});
+
+// Do some work...
+await computer.Interface.Mouse.LeftClick(100, 200);
+await computer.Interface.Keyboard.Type("test");
+
+// Stop and save trace
+string tracePath = await computer.Tracing.Stop();
+```
+
+---
+
+## Project Structure
+
+```
+Flekt.Computer.Abstractions/
+├── IComputerInterface.cs         # Main interface (composes sub-interfaces)
+├── IMouse.cs                     # Mouse operations
+├── IKeyboard.cs                  # Keyboard operations
+├── IScreen.cs                    # Screen operations
+├── IClipboard.cs                 # Clipboard operations
+├── IFiles.cs                     # File operations
+├── IShell.cs                     # Shell operations
+├── IWindows.cs                   # Window operations
+├── IComputerTracing.cs           # Tracing interface
+├── TracingConfig.cs              # Tracing configuration
+└── Models/
+    ├── ScreenSize.cs
+    ├── CursorPosition.cs
+    ├── CommandResult.cs
+    ├── MouseButton.cs
+    ├── MousePathPoint.cs
+    ├── MousePathOptions.cs
+    ├── WindowInfo.cs
+    └── RdpAccessInfo.cs
+
+Flekt.Computer/
+├── Computer.cs                   # Main entry point (IAsyncDisposable)
+├── ComputerOptions.cs            # Per-instance configuration
+├── ProviderType.cs               # Provider enum
+├── ComputerState.cs              # State enum
+├── DependencyInjection/
+│   ├── IComputerFactory.cs
+│   ├── ComputerFactory.cs
+│   ├── FlektComputerOptions.cs
+│   └── ServiceCollectionExtensions.cs
+└── Providers/
+    ├── IComputerProvider.cs
+    ├── CloudProvider.cs
+    ├── LocalHyperVProvider.cs
+    └── DirectProvider.cs
 ```
 
 ---
@@ -411,5 +332,3 @@ public static IEnumerable<MousePathPoint> ToMousePath(
 - `Microsoft.Extensions.DependencyInjection.Abstractions` - DI abstractions
 - `Microsoft.Extensions.Options` - Options pattern
 - `Microsoft.Extensions.Logging.Abstractions` - Logging abstractions
-- `System.Text.Json` - JSON serialization
-

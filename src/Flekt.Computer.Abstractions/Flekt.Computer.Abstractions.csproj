@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <!-- Allow flat namespace regardless of folder structure -->
+        <NoWarn>$(NoWarn);IDE0130</NoWarn>
+    </PropertyGroup>
+
+</Project>
