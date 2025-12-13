@@ -1,46 +1,40 @@
 namespace Flekt.Computer.Abstractions;
 
 /// <summary>
-/// Information for connecting to a computer via RDP.
+/// Public API response with RDP connection info.
+/// Gateway-based access using RD Gateway for secure routing to VMs.
 /// </summary>
 public sealed record RdpAccessInfo
 {
     /// <summary>
-    /// The server address (gateway or direct host).
+    /// RD Gateway hostname.
     /// </summary>
-    public required string Server { get; init; }
-    
+    public required string Gateway { get; init; }
+
     /// <summary>
-    /// The port to connect to. Null means default (3389).
+    /// Resource name (session ID) - used by gateway for routing.
     /// </summary>
-    public int? Port { get; init; }
-    
+    public required string Resource { get; init; }
+
     /// <summary>
-    /// The username for authentication.
+    /// Temporary username for this session.
     /// </summary>
     public required string Username { get; init; }
-    
+
     /// <summary>
-    /// The password for authentication.
+    /// Temporary password (auto-generated).
     /// </summary>
     public required string Password { get; init; }
-    
+
     /// <summary>
-    /// When these credentials expire.
+    /// When the RDP access expires.
     /// </summary>
     public required DateTimeOffset ExpiresAt { get; init; }
-    
+
     /// <summary>
-    /// Pre-generated .rdp file content for one-click connection.
+    /// Pre-built .rdp file content for one-click connect.
     /// </summary>
-    public string? RdpFileContent { get; init; }
-    
-    /// <summary>
-    /// Gets the full connection string.
-    /// </summary>
-    public string ConnectionString => Port.HasValue 
-        ? $"{Server}:{Port.Value}" 
-        : Server;
+    public required string RdpFileContent { get; init; }
     
     /// <summary>
     /// Whether the credentials have expired.

@@ -43,8 +43,9 @@ public sealed class ComputerOptions
     
     /// <summary>
     /// Base URL for the API (Cloud provider).
+    /// Defaults to the production Computer API at https://api.computer.flekt.co
     /// </summary>
-    public string? ApiBaseUrl { get; init; }
+    public string? ApiBaseUrl { get; init; } = "https://api.computer.flekt.co";
     
     /// <summary>
     /// URL for the local Host (LocalHyperV provider).
