@@ -27,20 +27,18 @@ public sealed class Computer : IComputer
     /// This is the recommended way to create a Computer.
     /// </summary>
     /// <param name="options">Configuration options for the computer.</param>
-    /// <param name="logger">Optional logger for diagnostics.</param>
+    /// <param name="loggerFactory">Optional logger factory for diagnostics.</param>
     /// <param name="cancelToken">Cancellation token.</param>
     /// <returns>A ready-to-use Computer instance.</returns>
     public static async Task<Computer> CreateAsync(
         ComputerOptions options,
-        ILogger<Computer>? logger = null,
+        ILoggerFactory? loggerFactory = null,
         CancellationToken cancelToken = default)
     {
         // Create provider based on options
         IComputerProvider provider = options.Provider switch
         {
-            ProviderType.Cloud => new CloudProvider(logger != null 
-                ? new LoggerFactory().CreateLogger<CloudProvider>() 
-                : null),
+            ProviderType.Cloud => new CloudProvider(loggerFactory?.CreateLogger<CloudProvider>()),
             ProviderType.LocalHyperV => throw new NotImplementedException("LocalHyperV provider not yet implemented"),
             ProviderType.Direct => throw new NotImplementedException("Direct provider not yet implemented"),
             _ => throw new ArgumentException($"Unknown provider type: {options.Provider}")
@@ -118,3 +116,5 @@ public sealed class Computer : IComputer
         await _provider.DisposeAsync();
     }
 }
+
+

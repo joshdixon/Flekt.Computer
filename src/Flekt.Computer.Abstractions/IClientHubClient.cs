@@ -1,11 +1,15 @@
 using Flekt.Computer.Abstractions.Contracts;
 
+using TypedSignalR.Client;
+
 namespace Flekt.Computer.Abstractions;
 
 /// <summary>
 /// SignalR callback interface that the API invokes on SDK clients.
 /// SDK implementations listen for these callbacks to handle state changes and responses.
+/// The [Receiver] attribute generates type-safe handler registration via source generation.
 /// </summary>
+[Receiver]
 public interface IClientHubClient
 {
     /// <summary>
@@ -39,3 +43,5 @@ public interface IClientHubClient
     /// </summary>
     Task Error(string sessionId, string errorCode, string message);
 }
+
+

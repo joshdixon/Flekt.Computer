@@ -4,20 +4,29 @@ using Flekt.Computer.Abstractions.Contracts;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 
+using TypedSignalR.Client;
+
 namespace Flekt.Computer.Providers;
 
 /// <summary>
 /// Cloud provider that connects to the Computer API via SignalR.
 /// Handles session creation, state management, and RDP access through the API.
+/// Uses TypedSignalR.Client for compile-time type safety.
 /// </summary>
-internal sealed class CloudProvider : IComputerProvider, IClientHubClient
+internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyncDisposable
 {
+    private const int MaxRetries = 3;
+    private static readonly TimeSpan ReconnectWaitTimeout = TimeSpan.FromSeconds(30);
+    
     private readonly ILogger<CloudProvider>? _logger;
     private HubConnection? _connection;
+    private IClientHubServer? _hubProxy;
+    private IDisposable? _receiverSubscription;
     private string? _sessionId;
     private ComputerState _state = ComputerState.Created;
     private readonly TaskCompletionSource _sessionReadyTcs = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<object?>> _pendingRequests = new();
+    private TaskCompletionSource? _reconnectedTcs;
     
     public event EventHandler<ComputerState>? StateChanged;
 
@@ -54,13 +63,16 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
             .WithAutomaticReconnect(new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5) })
             .Build();
 
-        // Register callbacks (implement IClientHubClient)
-        _connection.On<string>(nameof(SessionReady), SessionReady);
-        _connection.On<string, string>(nameof(SessionStateChanged), SessionStateChanged);
-        _connection.On<ComputerResponse>(nameof(CommandResponse), CommandResponse);
-        _connection.On<string, string, string>(nameof(CheckpointCreated), CheckpointCreated);
-        _connection.On<string, string>(nameof(CheckpointRestored), CheckpointRestored);
-        _connection.On<string, string, string>(nameof(Error), Error);
+        // Create type-safe proxy for calling hub methods (Client → Server)
+        _hubProxy = _connection.CreateHubProxy<IClientHubServer>();
+        
+        // Register this instance as receiver for incoming calls (Server → Client)
+        _receiverSubscription = _connection.Register<IClientHubClient>(this);
+
+        // Handle reconnection - resume session with new connection ID
+        _connection.Reconnecting += OnReconnectingAsync;
+        _connection.Reconnected += OnReconnectedAsync;
+        _connection.Closed += OnClosedAsync;
 
         // Connect to hub
         await _connection.StartAsync(cancelToken);
@@ -79,10 +91,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
             Tags = options.Tags
         };
 
-        var createResponse = await _connection.InvokeAsync<CreateSessionResponse>(
-            "CreateSession",
-            createRequest,
-            cancelToken);
+        var createResponse = await _hubProxy.CreateSession(createRequest);
 
         _sessionId = createResponse.SessionId;
         _logger?.LogInformation("Session created: {SessionId}", _sessionId);
@@ -90,7 +99,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
 
     public async Task<RdpAccessInfo> GetRdpAccessAsync(TimeSpan? duration = null, CancellationToken cancelToken = default)
     {
-        if (_connection == null)
+        if (_hubProxy == null)
         {
             throw new InvalidOperationException("Not connected. Call ConnectAsync first.");
         }
@@ -107,15 +116,125 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
 
         _logger?.LogInformation("Requesting RDP access for session {SessionId}", _sessionId);
 
-        var rdpInfo = await _connection.InvokeAsync<RdpAccessInfo>(
-            "GetRdpAccess",
-            _sessionId,
-            duration,
+        var rdpInfo = await InvokeWithRetryAsync(
+            () => _hubProxy.GetRdpAccess(_sessionId, duration),
+            nameof(IClientHubServer.GetRdpAccess),
             cancelToken);
 
         _logger?.LogInformation("RDP access granted, expires at {ExpiresAt}", rdpInfo.ExpiresAt);
 
         return rdpInfo;
+    }
+
+    /// <summary>
+    /// Invokes a hub method with automatic retry on connection failures.
+    /// </summary>
+    private async Task<TResult> InvokeWithRetryAsync<TResult>(
+        Func<Task<TResult>> action,
+        string methodName,
+        CancellationToken cancelToken)
+    {
+        if (_connection == null)
+        {
+            throw new InvalidOperationException("Not connected.");
+        }
+
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= MaxRetries; attempt++)
+        {
+            try
+            {
+                // Only wait for reconnection if we're actually in a reconnecting state
+                if (_connection.State == HubConnectionState.Reconnecting)
+                {
+                    var reconnectingTcs = _reconnectedTcs;
+                    if (reconnectingTcs != null)
+                    {
+                        _logger?.LogInformation(
+                            "Connection is reconnecting, waiting before {Method} attempt {Attempt}",
+                            methodName, attempt);
+                        
+                        using var timeoutCts = new CancellationTokenSource(ReconnectWaitTimeout);
+                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                            cancelToken, timeoutCts.Token);
+                        
+                        try
+                        {
+                            await reconnectingTcs.Task.WaitAsync(linkedCts.Token);
+                        }
+                        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                        {
+                            throw new TimeoutException(
+                                $"Timed out waiting for reconnection before {methodName}");
+                        }
+                    }
+                }
+                else if (_connection.State == HubConnectionState.Disconnected)
+                {
+                    throw new InvalidOperationException("Connection is disconnected.");
+                }
+
+                _logger?.LogDebug("Invoking {Method} (attempt {Attempt}/{MaxRetries})", methodName, attempt, MaxRetries);
+                return await action();
+            }
+            catch (Exception ex) when (IsConnectionLostException(ex) && attempt < MaxRetries)
+            {
+                lastException = ex;
+                _logger?.LogWarning(
+                    "Connection lost during {Method} (attempt {Attempt}/{MaxRetries}), waiting for reconnection...",
+                    methodName, attempt, MaxRetries);
+
+                // Wait for the reconnection to complete
+                var reconnectTcs = _reconnectedTcs;
+                if (reconnectTcs != null && _connection.State == HubConnectionState.Reconnecting)
+                {
+                    using var timeoutCts = new CancellationTokenSource(ReconnectWaitTimeout);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                        cancelToken, timeoutCts.Token);
+                    
+                    try
+                    {
+                        await reconnectTcs.Task.WaitAsync(linkedCts.Token);
+                        _logger?.LogInformation(
+                            "Reconnection complete, retrying {Method} (attempt {Attempt}/{MaxRetries})",
+                            methodName, attempt + 1, MaxRetries);
+                    }
+                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                    {
+                        throw new TimeoutException(
+                            $"Timed out waiting for reconnection during {methodName}: {ex.Message}", ex);
+                    }
+                }
+                else
+                {
+                    // No reconnection in progress - wait a bit and retry
+                    _logger?.LogInformation(
+                        "No reconnection in progress (state: {State}), waiting 2s before retry",
+                        _connection.State);
+                    await Task.Delay(TimeSpan.FromSeconds(2), cancelToken);
+                }
+            }
+        }
+
+        // If we get here, all retries failed
+        throw new InvalidOperationException(
+            $"Failed to invoke {methodName} after {MaxRetries} attempts",
+            lastException);
+    }
+
+    /// <summary>
+    /// Determines if an exception indicates a connection loss that can be retried.
+    /// </summary>
+    private static bool IsConnectionLostException(Exception ex)
+    {
+        var message = ex.Message;
+        
+        return message.Contains("Server connection which the client routed to is closed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("connection was terminated", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("connection closed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("The server returned status code", StringComparison.OrdinalIgnoreCase)
+            || ex is InvalidOperationException { Message: "The 'InvokeCoreAsync' method cannot be called" };
     }
 
     public async ValueTask DisposeAsync()
@@ -124,11 +243,24 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
         {
             _logger?.LogInformation("Disposing CloudProvider and ending session {SessionId}", _sessionId);
             
+            // Unregister all event handlers
+            _connection.Reconnecting -= OnReconnectingAsync;
+            _connection.Reconnected -= OnReconnectedAsync;
+            _connection.Closed -= OnClosedAsync;
+            
+            // Dispose the receiver subscription
+            _receiverSubscription?.Dispose();
+            _receiverSubscription = null;
+            
+            // Clear any pending TCS to unblock waiting operations
+            _reconnectedTcs?.TrySetCanceled();
+            _reconnectedTcs = null;
+            
             try
             {
-                if (_sessionId != null)
+                if (_sessionId != null && _hubProxy != null && _connection.State == HubConnectionState.Connected)
                 {
-                    await _connection.InvokeAsync("EndSession", _sessionId);
+                    await _hubProxy.EndSession(_sessionId);
                 }
             }
             catch (Exception ex)
@@ -138,10 +270,84 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
             
             await _connection.DisposeAsync();
             _connection = null;
+            _hubProxy = null;
         }
     }
 
-    // IClientHubClient implementation - callbacks from the API
+    private Task OnReconnectingAsync(Exception? error)
+    {
+        _logger?.LogWarning(error,
+            "Connection lost, attempting to reconnect for session {SessionId}",
+            _sessionId);
+        
+        // Create a TCS that pending operations can wait on
+        _reconnectedTcs ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        
+        return Task.CompletedTask;
+    }
+
+    private Task OnClosedAsync(Exception? error)
+    {
+        _logger?.LogWarning(error,
+            "Connection closed permanently for session {SessionId}",
+            _sessionId);
+        
+        // Signal any waiting operations that reconnection failed
+        var tcs = _reconnectedTcs;
+        _reconnectedTcs = null;
+        
+        if (tcs != null)
+        {
+            tcs.TrySetException(error ?? new InvalidOperationException("Connection closed"));
+        }
+        
+        return Task.CompletedTask;
+    }
+
+    private async Task OnReconnectedAsync(string? connectionId)
+    {
+        if (_sessionId == null || _hubProxy == null)
+        {
+            _logger?.LogWarning("Reconnected but no session ID to resume");
+            _reconnectedTcs?.TrySetResult();
+            _reconnectedTcs = null;
+            return;
+        }
+
+        try
+        {
+            _logger?.LogInformation(
+                "Reconnected to API (connection: {ConnectionId}), resuming session {SessionId}",
+                connectionId, _sessionId);
+
+            var response = await _hubProxy.ResumeSession(_sessionId);
+
+            _logger?.LogInformation(
+                "Session {SessionId} resumed successfully with status {Status}",
+                _sessionId, response.Status);
+            
+            // Signal that reconnection is complete - pending operations can now retry
+            _reconnectedTcs?.TrySetResult();
+            _reconnectedTcs = null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex,
+                "Failed to resume session {SessionId} after reconnection",
+                _sessionId);
+            
+            // Signal reconnection failure
+            _reconnectedTcs?.TrySetException(ex);
+            _reconnectedTcs = null;
+            
+            // Update state to error
+            UpdateState(ComputerState.Error);
+            _sessionReadyTcs.TrySetException(new InvalidOperationException(
+                $"Failed to resume session after reconnection: {ex.Message}", ex));
+        }
+    }
+
+    #region IClientHubClient Implementation (Server → Client calls)
 
     public Task SessionReady(string sessionId)
     {
@@ -220,6 +426,8 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient
         
         return Task.CompletedTask;
     }
+    
+    #endregion
 
     /// <summary>
     /// Waits for the session to become ready (after ConnectAsync).

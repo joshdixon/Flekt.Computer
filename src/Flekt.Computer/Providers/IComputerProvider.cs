@@ -40,3 +40,5 @@ public interface IComputerProvider : IAsyncDisposable
     /// <returns>RDP connection information including credentials.</returns>
     Task<RdpAccessInfo> GetRdpAccessAsync(TimeSpan? duration = null, CancellationToken cancelToken = default);
 }
+
+
