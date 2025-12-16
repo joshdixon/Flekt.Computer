@@ -66,6 +66,20 @@ public interface IComputer : IAsyncDisposable
     /// <param name="cancelToken">Cancellation token.</param>
     /// <returns>Information about the created environment.</returns>
     Task<EnvironmentInfo> SaveAsEnvironment(SaveEnvironmentOptions options, CancellationToken cancelToken = default);
+
+    /// <summary>
+    /// Captures the current VM disk state as a new reusable image.
+    /// 
+    /// ⚠️ WARNING: This operation will STOP the VM and END the session.
+    /// The VM must be stopped to ensure data consistency when capturing the disk image.
+    /// After the capture completes, the session will be terminated and cannot be resumed.
+    /// 
+    /// The captured image can be used to create new computer instances with the same disk state.
+    /// </summary>
+    /// <param name="options">Options for the disk image.</param>
+    /// <param name="cancelToken">Cancellation token.</param>
+    /// <returns>Information about the captured disk image.</returns>
+    Task<DiskImageInfo> SaveAsDiskImage(SaveDiskImageOptions options, CancellationToken cancelToken = default);
 }
 
 /// <summary>

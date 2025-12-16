@@ -26,9 +26,11 @@ public sealed record CreateSessionRequest
     public int? StorageGb { get; init; }
 
     /// <summary>
-    /// Base image name (if not using environment).
+    /// The ID of a disk image to create the VM from.
+    /// Use this to create VMs from images captured with SaveAsDiskImage().
+    /// If null, uses the default base image.
     /// </summary>
-    public string? Image { get; init; }
+    public string? ImageId { get; init; }
 
     /// <summary>
     /// Optional tags/metadata.
@@ -51,5 +53,8 @@ public sealed record CreateSessionResponse
     /// </summary>
     public required string Status { get; init; }
 }
+
+
+
 
 

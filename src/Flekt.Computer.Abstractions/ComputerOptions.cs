@@ -27,9 +27,11 @@ public sealed class ComputerOptions
     public int? StorageGb { get; init; }
     
     /// <summary>
-    /// Base image name (e.g., "windows-11-base").
+    /// The ID of a disk image to create the VM from.
+    /// Use this to create VMs from images captured with SaveAsDiskImage().
+    /// If null, uses the default base image (windows-server-2022-base).
     /// </summary>
-    public string? Image { get; init; }
+    public string? ImageId { get; init; }
     
     /// <summary>
     /// The provider type to use for connecting.

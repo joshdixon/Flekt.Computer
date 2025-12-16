@@ -42,6 +42,14 @@ public interface IClientHubClient
     /// Notifies the client of an error.
     /// </summary>
     Task Error(string sessionId, string errorCode, string message);
+
+    /// <summary>
+    /// Notifies the client that a disk image was captured successfully.
+    /// </summary>
+    Task DiskImageCaptured(string sessionId, DiskImageInfo imageInfo, string correlationId);
 }
+
+
+
 
 

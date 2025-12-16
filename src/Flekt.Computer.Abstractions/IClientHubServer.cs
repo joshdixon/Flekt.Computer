@@ -51,7 +51,19 @@ public interface IClientHubServer
     Task<EnvironmentInfo> SaveAsEnvironment(string sessionId, SaveEnvironmentOptions options);
 
     /// <summary>
+    /// Captures the current VM disk state as a new reusable image.
+    /// ⚠️ WARNING: This operation will STOP the VM and END the session.
+    /// Fire-and-forget: completion notified via DiskImageCaptured callback.
+    /// </summary>
+    /// <returns>The image ID that was assigned to the capture request.</returns>
+    Task<string> SaveAsDiskImage(string sessionId, SaveDiskImageOptions options);
+
+    /// <summary>
     /// Ends the session and cleans up resources.
     /// </summary>
     Task EndSession(string sessionId);
 }
+
+
+
+
