@@ -361,17 +361,17 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
 
     private async Task<object> ExecuteMouseMove(string argsJson, CancellationToken ct)
     {
-        var args = JsonSerializer.Deserialize<MouseMoveArgs>(argsJson);
+        var args = JsonSerializer.Deserialize<MouseMoveArgs>(argsJson, JsonOptions);
         if (args == null) throw new ArgumentException("Invalid mouse_move arguments");
 
         await _computer.Interface.Mouse.Move(args.X, args.Y, ct);
-        
+
         return new { success = true, x = args.X, y = args.Y };
     }
 
     private async Task<object> ExecuteMouseClick(string argsJson, CancellationToken ct)
     {
-        var args = JsonSerializer.Deserialize<MouseClickArgs>(argsJson);
+        var args = JsonSerializer.Deserialize<MouseClickArgs>(argsJson, JsonOptions);
         if (args == null) throw new ArgumentException("Invalid mouse_click arguments");
 
         var button = args.Button?.ToLowerInvariant() switch
@@ -400,17 +400,17 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
 
     private async Task<object> ExecuteKeyboardType(string argsJson, CancellationToken ct)
     {
-        var args = JsonSerializer.Deserialize<KeyboardTypeArgs>(argsJson);
+        var args = JsonSerializer.Deserialize<KeyboardTypeArgs>(argsJson, JsonOptions);
         if (args == null) throw new ArgumentException("Invalid keyboard_type arguments");
 
         await _computer.Interface.Keyboard.Type(args.Text, ct);
-        
+
         return new { success = true, text = args.Text };
     }
 
     private async Task<object> ExecuteKeyboardPress(string argsJson, CancellationToken ct)
     {
-        var args = JsonSerializer.Deserialize<KeyboardPressArgs>(argsJson);
+        var args = JsonSerializer.Deserialize<KeyboardPressArgs>(argsJson, JsonOptions);
         if (args == null) throw new ArgumentException("Invalid keyboard_press arguments");
 
         // Build key combination
@@ -442,6 +442,12 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
             await disposable.DisposeAsync();
         }
     }
+
+    // JSON options for case-insensitive deserialization (LLMs may use lowercase property names)
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     // Tool argument models
     private class MouseMoveArgs
