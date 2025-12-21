@@ -78,7 +78,12 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             ["model"] = _model,
             ["messages"] = formattedMessages,
             ["stream"] = true,
-            ["tools"] = GetToolDefinitions()
+            ["tools"] = GetToolDefinitions(),
+            // Exclude reasoning tokens - we don't handle them yet
+            ["reasoning"] = new Dictionary<string, object>
+            {
+                ["exclude"] = true
+            }
         };
 
         // Log the request for debugging
