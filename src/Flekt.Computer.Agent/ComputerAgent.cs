@@ -74,7 +74,11 @@ public sealed class ComputerAgent : IAsyncDisposable
             var contextMessages = PrepareMessages(messageList, screenshotBase64, screenSize);
             
             // Call LLM with streaming
-            bool hasToolCalls = false;
+            // Collect tool calls first, then execute them after we have the full response
+            var pendingToolCalls = new List<ToolCall>();
+            string? assistantContent = null;
+            bool continueLoop = false;
+
             await foreach (var chunk in _llmProvider.StreamChatAsync(contextMessages, cancellationToken))
             {
                 // Yield reasoning/thinking
@@ -84,22 +88,48 @@ public sealed class ComputerAgent : IAsyncDisposable
                     continue;
                 }
 
-                // Execute tool calls (computer actions)
+                // Collect tool calls (don't execute yet - need to add assistant message first)
                 if (chunk.Type == AgentResultType.ToolCall && chunk.ToolCall != null)
                 {
-                    hasToolCalls = true;
+                    pendingToolCalls.Add(chunk.ToolCall);
                     yield return chunk;
-                    
-                    var toolResult = await ExecuteToolCall(chunk.ToolCall, cancellationToken);
+                }
+
+                // Final message from assistant
+                if (chunk.Type == AgentResultType.Message)
+                {
+                    assistantContent = chunk.Content;
+                    continueLoop = chunk.ContinueLoop;
+                    yield return chunk;
+                }
+            }
+
+            // Now process the response: add assistant message with tool calls, then execute tools
+            bool hasToolCalls = pendingToolCalls.Count > 0;
+
+            if (hasToolCalls)
+            {
+                // Add assistant message WITH tool calls to history (required by OpenAI API)
+                messageList.Add(new AgentMessage
+                {
+                    Role = AgentRole.Assistant,
+                    Content = assistantContent,
+                    ToolCalls = pendingToolCalls
+                });
+
+                // Execute each tool call and add results
+                foreach (var toolCall in pendingToolCalls)
+                {
+                    var toolResult = await ExecuteToolCall(toolCall, cancellationToken);
                     messageList.Add(toolResult);
-                    
+
                     // Take screenshot after action
                     if (_options.ScreenshotAfterAction)
                     {
                         await Task.Delay(_options.ScreenshotDelay, cancellationToken);
                         screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
                         screenshotBase64 = Convert.ToBase64String(screenshot);
-                        
+
                         yield return new AgentResult
                         {
                             Type = AgentResultType.Screenshot,
@@ -107,28 +137,22 @@ public sealed class ComputerAgent : IAsyncDisposable
                         };
                     }
                 }
-
-                // Final message from assistant
-                if (chunk.Type == AgentResultType.Message)
+            }
+            else if (!string.IsNullOrEmpty(assistantContent))
+            {
+                // No tool calls - just add the assistant message
+                messageList.Add(new AgentMessage
                 {
-                    yield return chunk;
-                    
-                    if (!string.IsNullOrEmpty(chunk.Content))
-                    {
-                        messageList.Add(new AgentMessage
-                        {
-                            Role = AgentRole.Assistant,
-                            Content = chunk.Content
-                        });
-                    }
-                    
-                    // Check if we should stop
-                    if (!chunk.ContinueLoop && !hasToolCalls)
-                    {
-                        _logger?.LogInformation("Agent run completed after {Iterations} iterations", iterations);
-                        yield break;
-                    }
-                }
+                    Role = AgentRole.Assistant,
+                    Content = assistantContent
+                });
+            }
+
+            // Check if we should stop
+            if (!continueLoop && !hasToolCalls)
+            {
+                _logger?.LogInformation("Agent run completed after {Iterations} iterations", iterations);
+                yield break;
             }
 
             // If we had tool calls, continue the loop to send results back to LLM
