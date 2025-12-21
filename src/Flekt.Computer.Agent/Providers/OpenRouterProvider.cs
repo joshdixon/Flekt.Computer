@@ -72,6 +72,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
         using var reader = new StreamReader(stream);
 
         var currentToolCall = new Dictionary<int, ToolCallBuilder>();
+        var accumulatedContent = new System.Text.StringBuilder();
 
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
@@ -120,21 +121,16 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 }
             }
 
-            // Handle text content
+            // Accumulate text content (don't yield yet - wait for stream to complete)
             if (!string.IsNullOrEmpty(delta?.Content))
             {
-                yield return new AgentResult
-                {
-                    Type = AgentResultType.Message,
-                    Content = delta.Content,
-                    ContinueLoop = false
-                };
+                accumulatedContent.Append(delta.Content);
             }
 
             // Check if this is the last chunk
             if (chunk.Choices[0].FinishReason != null)
             {
-                // Yield all accumulated tool calls
+                // Yield all accumulated tool calls first
                 foreach (var tc in currentToolCall.Values)
                 {
                     yield return new AgentResult
@@ -146,6 +142,19 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                             Name = tc.Name,
                             Arguments = tc.Arguments
                         }
+                    };
+                }
+
+                // Yield accumulated text content as final message
+                // ContinueLoop should be true if there were tool calls (agent should continue)
+                var hasToolCalls = currentToolCall.Count > 0;
+                if (accumulatedContent.Length > 0 || !hasToolCalls)
+                {
+                    yield return new AgentResult
+                    {
+                        Type = AgentResultType.Message,
+                        Content = accumulatedContent.ToString(),
+                        ContinueLoop = hasToolCalls
                     };
                 }
 
