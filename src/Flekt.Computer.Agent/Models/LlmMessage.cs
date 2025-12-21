@@ -29,3 +29,4 @@ public class ImageUrl
     public required string Url { get; init; } // data:image/png;base64,...
 }
 
+

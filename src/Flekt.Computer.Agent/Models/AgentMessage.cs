@@ -67,5 +67,33 @@ public class ComputerAgentOptions
     public int MaxIterations { get; init; } = 100;
     public int OnlyNMostRecentScreenshots { get; init; } = 3;
     public string? SystemPrompt { get; init; }
+
+    /// <summary>
+    /// Enable OmniParser for UI element detection. When enabled, screenshots
+    /// will be processed by OmniParser to detect UI elements with bounding boxes.
+    /// This dramatically improves click accuracy for all models.
+    /// </summary>
+    public bool EnableOmniParser { get; init; } = false;
+
+    /// <summary>
+    /// Replicate API token for OmniParser. Required if EnableOmniParser is true.
+    /// </summary>
+    public string? ReplicateApiToken { get; init; }
+
+    /// <summary>
+    /// OmniParser image size for detection (default: 640).
+    /// </summary>
+    public int OmniParserImageSize { get; init; } = 640;
+
+    /// <summary>
+    /// OmniParser box detection threshold (default: 0.05).
+    /// </summary>
+    public double OmniParserBoxThreshold { get; init; } = 0.05;
+
+    /// <summary>
+    /// OmniParser IOU threshold for deduplication (default: 0.1).
+    /// </summary>
+    public double OmniParserIouThreshold { get; init; } = 0.1;
 }
+
 

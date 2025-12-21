@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Flekt.Computer.Agent.Models;
 using Flekt.Computer.Agent.Providers;
+using Flekt.Computer.Agent.Services;
 using Flekt.Computer.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +19,7 @@ public sealed class ComputerAgent : IAsyncDisposable
     private readonly ComputerAgentOptions _options;
     private readonly ILogger<ComputerAgent>? _logger;
     private readonly List<string> _screenshotHistory = new();
+    private readonly IOmniParser? _omniParser;
 
     public ComputerAgent(
         string model,
@@ -29,11 +31,32 @@ public sealed class ComputerAgent : IAsyncDisposable
         _computer = computer;
         _options = options ?? new ComputerAgentOptions();
         _logger = loggerFactory?.CreateLogger<ComputerAgent>();
-        
+
         // Phase 1: Only OpenRouter supported
         // Model format: "anthropic/claude-3.5-sonnet", "openai/gpt-4o", "google/gemini-pro-vision"
         // OpenRouter handles routing to the appropriate provider
         _llmProvider = new OpenRouterProvider(model, apiKey, loggerFactory?.CreateLogger<OpenRouterProvider>());
+
+        // Initialize OmniParser if enabled
+        if (_options.EnableOmniParser)
+        {
+            if (string.IsNullOrEmpty(_options.ReplicateApiToken))
+            {
+                throw new ArgumentException("ReplicateApiToken is required when EnableOmniParser is true");
+            }
+
+            _omniParser = new ReplicateOmniParser(
+                _options.ReplicateApiToken,
+                new ReplicateOmniParserOptions
+                {
+                    ImageSize = _options.OmniParserImageSize,
+                    BoxThreshold = _options.OmniParserBoxThreshold,
+                    IouThreshold = _options.OmniParserIouThreshold
+                },
+                loggerFactory?.CreateLogger<ReplicateOmniParser>());
+
+            _logger?.LogInformation("ComputerAgent: OmniParser enabled for UI element detection");
+        }
     }
 
     /// <summary>
@@ -75,16 +98,37 @@ public sealed class ComputerAgent : IAsyncDisposable
 
             // Convert to base64 for LLM
             string screenshotBase64 = Convert.ToBase64String(screenshot);
-            
+
+            // Run OmniParser if enabled
+            OmniParserResult? omniParserResult = null;
+            if (_omniParser != null)
+            {
+                try
+                {
+                    _logger?.LogInformation("ComputerAgent: Running OmniParser analysis...");
+                    omniParserResult = await _omniParser.ParseAsync(
+                        screenshotBase64,
+                        screenSize.Width,
+                        screenSize.Height,
+                        cancellationToken);
+                    _logger?.LogInformation("ComputerAgent: OmniParser detected {Count} UI elements",
+                        omniParserResult.Elements.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "ComputerAgent: OmniParser failed, continuing without element detection");
+                }
+            }
+
             // Add to history and maintain only N most recent
             _screenshotHistory.Add(screenshotBase64);
             if (_screenshotHistory.Count > _options.OnlyNMostRecentScreenshots)
             {
                 _screenshotHistory.RemoveAt(0);
             }
-            
+
             // Prepare messages with screenshot context
-            var contextMessages = PrepareMessages(messageList, screenshotBase64, screenSize);
+            var contextMessages = PrepareMessages(messageList, screenshotBase64, screenSize, omniParserResult);
             _logger?.LogInformation("ComputerAgent: Prepared {Count} messages for LLM (including screenshot)", contextMessages.Count);
 
             // Call LLM with streaming
@@ -205,31 +249,21 @@ public sealed class ComputerAgent : IAsyncDisposable
     private List<LlmMessage> PrepareMessages(
         List<AgentMessage> messages,
         string currentScreenshot,
-        ScreenSize screenSize)
+        ScreenSize screenSize,
+        OmniParserResult? omniParserResult = null)
     {
         var llmMessages = new List<LlmMessage>();
 
-        // Add system prompt if provided
+        // Build the system prompt
+        string systemPromptText;
         if (!string.IsNullOrEmpty(_options.SystemPrompt))
         {
-            llmMessages.Add(new LlmMessage
-            {
-                Role = "system",
-                Content = new List<LlmContent>
-                {
-                    new() { Type = "text", Text = _options.SystemPrompt }
-                }
-            });
+            systemPromptText = _options.SystemPrompt;
         }
         else
         {
             // Default system prompt with coordinate guidance (based on CUA library)
-            llmMessages.Add(new LlmMessage
-            {
-                Role = "system",
-                Content = new List<LlmContent>
-                {
-                    new() { Type = "text", Text = $@"You are an AI agent that can control a computer through vision and actions.
+            systemPromptText = $@"You are an AI agent that can control a computer through vision and actions.
 
 You can see the screen and perform actions like:
 - mouse_move(x, y) - Move mouse to coordinates
@@ -238,14 +272,45 @@ You can see the screen and perform actions like:
 - keyboard_press(key, modifiers?) - Press a key
 - screenshot() - Take a screenshot
 
-The screen resolution is {screenSize.Width}x{screenSize.Height} pixels. Coordinates start at (0,0) in the top-left corner.
+The screen resolution is {screenSize.Width}x{screenSize.Height} pixels. Coordinates start at (0,0) in the top-left corner.";
+
+            // Add OmniParser context if available
+            if (omniParserResult != null && omniParserResult.Elements.Count > 0)
+            {
+                systemPromptText += @"
+
+## Detected UI Elements (from OmniParser)
+You are provided with two images:
+1. The original screenshot
+2. An annotated version with detected UI elements highlighted and numbered
+
+The following UI elements have been detected with their bounding boxes and center coordinates:
+
+";
+                systemPromptText += FormatOmniParserElements(omniParserResult.Elements);
+
+                systemPromptText += @"
+
+IMPORTANT GUIDELINES FOR CLICKING:
+* Use the detected UI elements above to find precise coordinates
+* When clicking an element, use the CENTER coordinates provided for that element
+* Match the requested element to one in the list and use its center coordinates directly
+* The annotated image shows element numbers that correspond to the list above
+* Coordinates must be integers within the image bounds";
+            }
+            else
+            {
+                systemPromptText += @"
 
 IMPORTANT GUIDELINES FOR CLICKING:
 * Whenever you intend to click on an element, carefully examine the screenshot to determine the EXACT coordinates of the element's center before clicking.
 * Always click in the CENTER of UI elements (buttons, icons, links, text fields), never on their edges.
 * If a click doesn't work, try adjusting your coordinates so the cursor tip is precisely on the target element.
 * Some applications may take time to respond - if nothing happens after clicking, wait and take another screenshot before trying again.
-* For small elements like checkboxes, radio buttons, or close buttons, be extra precise with coordinates.
+* For small elements like checkboxes, radio buttons, or close buttons, be extra precise with coordinates.";
+            }
+
+            systemPromptText += @"
 
 When given a task:
 1. Carefully observe the current screenshot
@@ -253,10 +318,17 @@ When given a task:
 3. Execute the action with precise coordinates
 4. Take a screenshot to verify the result before proceeding
 
-Remember: Precision is critical. A click that is off by even 20-30 pixels may miss the target element entirely." }
-                }
-            });
+Remember: Precision is critical. A click that is off by even 20-30 pixels may miss the target element entirely.";
         }
+
+        llmMessages.Add(new LlmMessage
+        {
+            Role = "system",
+            Content = new List<LlmContent>
+            {
+                new() { Type = "text", Text = systemPromptText }
+            }
+        });
 
         // Convert agent messages to LLM messages
         foreach (var msg in messages)
@@ -304,24 +376,70 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
             llmMessages.Add(llmMsg);
         }
 
-        // Add current screenshot as user message
+        // Add current screenshot(s) as user message
+        var screenshotContent = new List<LlmContent>();
+
+        if (omniParserResult != null)
+        {
+            // Include both original and annotated images when OmniParser is available
+            screenshotContent.Add(new LlmContent
+            {
+                Type = "text",
+                Text = "Here is the original screenshot:"
+            });
+            screenshotContent.Add(new LlmContent
+            {
+                Type = "image_url",
+                ImageUrl = new ImageUrl
+                {
+                    Url = $"data:image/png;base64,{currentScreenshot}"
+                }
+            });
+            screenshotContent.Add(new LlmContent
+            {
+                Type = "text",
+                Text = "Here is the OmniParser annotated version with detected elements highlighted:"
+            });
+            screenshotContent.Add(new LlmContent
+            {
+                Type = "image_url",
+                ImageUrl = new ImageUrl
+                {
+                    Url = $"data:image/png;base64,{omniParserResult.AnnotatedImageBase64}"
+                }
+            });
+        }
+        else
+        {
+            // Just the original screenshot
+            screenshotContent.Add(new LlmContent
+            {
+                Type = "image_url",
+                ImageUrl = new ImageUrl
+                {
+                    Url = $"data:image/png;base64,{currentScreenshot}"
+                }
+            });
+        }
+
         llmMessages.Add(new LlmMessage
         {
             Role = "user",
-            Content = new List<LlmContent>
-            {
-                new()
-                {
-                    Type = "image_url",
-                    ImageUrl = new ImageUrl
-                    {
-                        Url = $"data:image/png;base64,{currentScreenshot}"
-                    }
-                }
-            }
+            Content = screenshotContent
         });
 
         return llmMessages;
+    }
+
+    private static string FormatOmniParserElements(List<OmniParserElement> elements)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var e in elements)
+        {
+            sb.AppendLine($"  - Element {e.Id}: \"{e.Content}\" (type={e.Type}, interactable={e.Interactivity})");
+            sb.AppendLine($"    Bounding box: ({e.BoundingBox[0]}, {e.BoundingBox[1]}) to ({e.BoundingBox[2]}, {e.BoundingBox[3]}), Center: ({e.Center[0]}, {e.Center[1]})");
+        }
+        return sb.ToString();
     }
 
     private async Task<AgentMessage> ExecuteToolCall(

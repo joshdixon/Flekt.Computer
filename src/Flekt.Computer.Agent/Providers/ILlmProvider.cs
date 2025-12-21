@@ -26,3 +26,4 @@ public class LlmCapabilities
     public int ContextWindow { get; init; }
 }
 
+
