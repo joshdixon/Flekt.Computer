@@ -3,7 +3,6 @@ using System.Text.Json;
 using Flekt.Computer.Agent.Models;
 using Flekt.Computer.Agent.Providers;
 using Flekt.Computer.Abstractions;
-using Flekt.Computer.Abstractions.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Flekt.Computer.Agent;
