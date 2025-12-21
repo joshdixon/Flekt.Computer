@@ -311,7 +311,7 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
         var args = JsonSerializer.Deserialize<MouseMoveArgs>(argsJson);
         if (args == null) throw new ArgumentException("Invalid mouse_move arguments");
 
-        await _computer.Interface.Mouse.MoveTo(args.X, args.Y, ct);
+        await _computer.Interface.Mouse.Move(args.X, args.Y, ct);
         
         return new { success = true, x = args.X, y = args.Y };
     }
@@ -328,12 +328,19 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
             _ => MouseButton.Left
         };
 
-        if (args.X.HasValue && args.Y.HasValue)
+        switch (button)
         {
-            await _computer.Interface.Mouse.MoveTo(args.X.Value, args.Y.Value, ct);
+            case MouseButton.Right:
+                await _computer.Interface.Mouse.RightClick(args.X, args.Y, ct);
+                break;
+            case MouseButton.Middle:
+                await _computer.Interface.Mouse.Down(args.X, args.Y, MouseButton.Middle, ct);
+                await _computer.Interface.Mouse.Up(args.X, args.Y, MouseButton.Middle, ct);
+                break;
+            default:
+                await _computer.Interface.Mouse.LeftClick(args.X, args.Y, ct);
+                break;
         }
-
-        await _computer.Interface.Mouse.Click(button, ct);
         
         return new { success = true, button = button.ToString() };
     }

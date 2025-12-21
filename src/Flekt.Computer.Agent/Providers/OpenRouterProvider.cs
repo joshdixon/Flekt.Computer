@@ -80,74 +80,76 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             if (line == "data: [DONE]") break;
 
             var json = line[6..]; // Remove "data: " prefix
-            
+
+            OpenRouterStreamChunk? chunk = null;
             try
             {
-                var chunk = JsonSerializer.Deserialize<OpenRouterStreamChunk>(json);
-                
-                if (chunk?.Choices == null || chunk.Choices.Count == 0)
-                    continue;
-
-                var delta = chunk.Choices[0].Delta;
-                
-                // Handle tool calls (streaming chunks)
-                if (delta?.ToolCalls != null)
-                {
-                    foreach (var toolCallChunk in delta.ToolCalls)
-                    {
-                        var index = toolCallChunk.Index;
-                        
-                        if (!currentToolCall.ContainsKey(index))
-                        {
-                            currentToolCall[index] = new ToolCallBuilder
-                            {
-                                Id = toolCallChunk.Id ?? $"call_{Guid.NewGuid():N}",
-                                Name = toolCallChunk.Function?.Name ?? ""
-                            };
-                        }
-
-                        if (toolCallChunk.Function?.Arguments != null)
-                        {
-                            currentToolCall[index].Arguments += toolCallChunk.Function.Arguments;
-                        }
-                    }
-                }
-                
-                // Handle text content
-                if (!string.IsNullOrEmpty(delta?.Content))
-                {
-                    yield return new AgentResult
-                    {
-                        Type = AgentResultType.Message,
-                        Content = delta.Content,
-                        ContinueLoop = false
-                    };
-                }
-
-                // Check if this is the last chunk
-                if (chunk.Choices[0].FinishReason != null)
-                {
-                    // Yield all accumulated tool calls
-                    foreach (var tc in currentToolCall.Values)
-                    {
-                        yield return new AgentResult
-                        {
-                            Type = AgentResultType.ToolCall,
-                            ToolCall = new ToolCall
-                            {
-                                Id = tc.Id,
-                                Name = tc.Name,
-                                Arguments = tc.Arguments
-                            }
-                        };
-                    }
-
-                    currentToolCall.Clear();
-                }
+                chunk = JsonSerializer.Deserialize<OpenRouterStreamChunk>(json);
             }
             catch (JsonException ex)
             {
                 _logger?.LogWarning(ex, "Failed to parse OpenRouter response chunk: {Json}", json);
+                continue;
+            }
+
+            if (chunk?.Choices == null || chunk.Choices.Count == 0)
+                continue;
+
+            var delta = chunk.Choices[0].Delta;
+
+            // Handle tool calls (streaming chunks)
+            if (delta?.ToolCalls != null)
+            {
+                foreach (var toolCallChunk in delta.ToolCalls)
+                {
+                    var index = toolCallChunk.Index;
+
+                    if (!currentToolCall.ContainsKey(index))
+                    {
+                        currentToolCall[index] = new ToolCallBuilder
+                        {
+                            Id = toolCallChunk.Id ?? $"call_{Guid.NewGuid():N}",
+                            Name = toolCallChunk.Function?.Name ?? ""
+                        };
+                    }
+
+                    if (toolCallChunk.Function?.Arguments != null)
+                    {
+                        currentToolCall[index].Arguments += toolCallChunk.Function.Arguments;
+                    }
+                }
+            }
+
+            // Handle text content
+            if (!string.IsNullOrEmpty(delta?.Content))
+            {
+                yield return new AgentResult
+                {
+                    Type = AgentResultType.Message,
+                    Content = delta.Content,
+                    ContinueLoop = false
+                };
+            }
+
+            // Check if this is the last chunk
+            if (chunk.Choices[0].FinishReason != null)
+            {
+                // Yield all accumulated tool calls
+                foreach (var tc in currentToolCall.Values)
+                {
+                    yield return new AgentResult
+                    {
+                        Type = AgentResultType.ToolCall,
+                        ToolCall = new ToolCall
+                        {
+                            Id = tc.Id,
+                            Name = tc.Name,
+                            Arguments = tc.Arguments
+                        }
+                    };
+                }
+
+                currentToolCall.Clear();
             }
         }
     }

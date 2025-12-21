@@ -7,8 +7,8 @@ public class LlmMessage
 {
     public required string Role { get; init; }
     public List<LlmContent> Content { get; init; } = new();
-    public List<ToolCall>? ToolCalls { get; init; }
-    public string? ToolCallId { get; init; }
+    public List<ToolCall>? ToolCalls { get; set; }
+    public string? ToolCallId { get; set; }
 }
 
 public class LlmContent
