@@ -223,7 +223,7 @@ public sealed class ComputerAgent : IAsyncDisposable
         }
         else
         {
-            // Default system prompt
+            // Default system prompt with coordinate guidance (based on CUA library)
             llmMessages.Add(new LlmMessage
             {
                 Role = "system",
@@ -238,15 +238,22 @@ You can see the screen and perform actions like:
 - keyboard_press(key, modifiers?) - Press a key
 - screenshot() - Take a screenshot
 
-The screen size is {screenSize.Width}x{screenSize.Height} pixels.
+The screen resolution is {screenSize.Width}x{screenSize.Height} pixels. Coordinates start at (0,0) in the top-left corner.
+
+IMPORTANT GUIDELINES FOR CLICKING:
+* Whenever you intend to click on an element, carefully examine the screenshot to determine the EXACT coordinates of the element's center before clicking.
+* Always click in the CENTER of UI elements (buttons, icons, links, text fields), never on their edges.
+* If a click doesn't work, try adjusting your coordinates so the cursor tip is precisely on the target element.
+* Some applications may take time to respond - if nothing happens after clicking, wait and take another screenshot before trying again.
+* For small elements like checkboxes, radio buttons, or close buttons, be extra precise with coordinates.
 
 When given a task:
-1. Observe the current screen carefully
-2. Plan your actions step by step
-3. Execute actions to complete the task
-4. Verify the results
+1. Carefully observe the current screenshot
+2. Identify the exact pixel coordinates of the element you need to interact with
+3. Execute the action with precise coordinates
+4. Take a screenshot to verify the result before proceeding
 
-Be precise with coordinates and actions. If something doesn't work, try a different approach." }
+Remember: Precision is critical. A click that is off by even 20-30 pixels may miss the target element entirely." }
                 }
             });
         }

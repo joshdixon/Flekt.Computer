@@ -220,14 +220,14 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 function = new
                 {
                     name = "mouse_move",
-                    description = "Move the mouse cursor to specified coordinates",
+                    description = "Move the mouse cursor to the specified pixel coordinates. Coordinates are absolute screen positions where (0,0) is the top-left corner. Always determine coordinates by carefully examining the screenshot first.",
                     parameters = new
                     {
                         type = "object",
                         properties = new
                         {
-                            x = new { type = "integer", description = "X coordinate" },
-                            y = new { type = "integer", description = "Y coordinate" }
+                            x = new { type = "integer", description = "X coordinate in pixels from the left edge of the screen" },
+                            y = new { type = "integer", description = "Y coordinate in pixels from the top edge of the screen" }
                         },
                         required = new[] { "x", "y" }
                     }
@@ -239,15 +239,15 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 function = new
                 {
                     name = "mouse_click",
-                    description = "Click the mouse at current position or specified coordinates",
+                    description = "Click the mouse at the specified pixel coordinates. Always click in the CENTER of UI elements, not on their edges. Coordinates are absolute screen positions where (0,0) is the top-left corner. If coordinates are not provided, clicks at the current cursor position.",
                     parameters = new
                     {
                         type = "object",
                         properties = new
                         {
                             button = new { type = "string", @enum = new[] { "left", "right", "middle" }, description = "Mouse button to click (default: left)" },
-                            x = new { type = "integer", description = "Optional X coordinate" },
-                            y = new { type = "integer", description = "Optional Y coordinate" }
+                            x = new { type = "integer", description = "X coordinate in pixels from the left edge - should be the horizontal CENTER of the target element" },
+                            y = new { type = "integer", description = "Y coordinate in pixels from the top edge - should be the vertical CENTER of the target element" }
                         }
                     }
                 }
@@ -258,7 +258,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 function = new
                 {
                     name = "keyboard_type",
-                    description = "Type text using the keyboard",
+                    description = "Type text using the keyboard. Use this for entering text into text fields, search boxes, or any text input. Make sure the target text field is focused (clicked) before typing.",
                     parameters = new
                     {
                         type = "object",
@@ -276,14 +276,14 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 function = new
                 {
                     name = "keyboard_press",
-                    description = "Press a key or key combination",
+                    description = "Press a key or key combination. Use this for special keys like Enter, Tab, Escape, arrow keys, or keyboard shortcuts with modifiers.",
                     parameters = new
                     {
                         type = "object",
                         properties = new
                         {
-                            key = new { type = "string", description = "Key to press (e.g., 'Enter', 'Tab', 'Escape')" },
-                            modifiers = new { type = "array", items = new { type = "string" }, description = "Modifier keys (Ctrl, Alt, Shift)" }
+                            key = new { type = "string", description = "Key to press (e.g., 'Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'F1'-'F12', or any letter/number)" },
+                            modifiers = new { type = "array", items = new { type = "string" }, description = "Modifier keys to hold while pressing: 'Ctrl', 'Alt', 'Shift', 'Win'. Example: ['Ctrl', 'Shift'] for Ctrl+Shift+key" }
                         },
                         required = new[] { "key" }
                     }
@@ -295,7 +295,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 function = new
                 {
                     name = "screenshot",
-                    description = "Take a screenshot of the current screen",
+                    description = "Take a screenshot of the current screen. Use this to see the current state of the screen, especially after performing actions to verify the result.",
                     parameters = new
                     {
                         type = "object",
