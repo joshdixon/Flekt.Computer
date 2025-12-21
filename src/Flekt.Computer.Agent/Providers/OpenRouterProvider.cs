@@ -33,21 +33,26 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
         IEnumerable<LlmMessage> messages,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var request = new
+        // Build messages with conditional fields (OpenRouter doesn't like null tool_calls/tool_call_id)
+        var formattedMessages = messages.Select(m =>
         {
-            model = _model,
-            messages = messages.Select(m => new
+            var msg = new Dictionary<string, object?>
             {
-                role = m.Role,
-                content = m.Content.Count == 1 && m.Content[0].Type == "text"
-                    ? (object)m.Content[0].Text!
-                    : m.Content.Select(c => new
+                ["role"] = m.Role,
+                ["content"] = m.Content.Count == 1 && m.Content[0].Type == "text"
+                    ? m.Content[0].Text!
+                    : m.Content.Select(c => new Dictionary<string, object?>
                     {
-                        type = c.Type,
-                        text = c.Text,
-                        image_url = c.ImageUrl != null ? new { url = c.ImageUrl.Url } : null
-                    }).ToList(),
-                tool_calls = m.ToolCalls?.Select(tc => new
+                        ["type"] = c.Type,
+                        ["text"] = c.Text,
+                        ["image_url"] = c.ImageUrl != null ? new { url = c.ImageUrl.Url } : null
+                    }.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => kv.Value)).ToList()
+            };
+
+            // Only add tool_calls for assistant messages that have them
+            if (m.ToolCalls != null && m.ToolCalls.Count > 0)
+            {
+                msg["tool_calls"] = m.ToolCalls.Select(tc => new
                 {
                     id = tc.Id,
                     type = "function",
@@ -56,17 +61,40 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                         name = tc.Name,
                         arguments = tc.Arguments
                     }
-                }).ToList(),
-                tool_call_id = m.ToolCallId
-            }),
-            stream = true,
-            tools = GetToolDefinitions()
+                }).ToList();
+            }
+
+            // Only add tool_call_id for tool result messages
+            if (!string.IsNullOrEmpty(m.ToolCallId))
+            {
+                msg["tool_call_id"] = m.ToolCallId;
+            }
+
+            return msg;
+        }).ToList();
+
+        var request = new Dictionary<string, object>
+        {
+            ["model"] = _model,
+            ["messages"] = formattedMessages,
+            ["stream"] = true,
+            ["tools"] = GetToolDefinitions()
         };
 
-        _logger?.LogDebug("Sending request to OpenRouter: {Model}", _model);
+        // Log the request for debugging
+        var requestJson = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = false });
+        _logger?.LogDebug("Sending request to OpenRouter: {Model}, Messages: {MessageCount}", _model, messages.Count());
+        _logger?.LogTrace("OpenRouter request payload: {Payload}", requestJson);
 
         var response = await _httpClient.PostAsJsonAsync("chat/completions", request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger?.LogError("OpenRouter API error {StatusCode}: {ErrorBody}", (int)response.StatusCode, errorBody);
+            _logger?.LogError("Request that caused error: {Request}", requestJson);
+            throw new HttpRequestException($"OpenRouter API error {(int)response.StatusCode}: {errorBody}");
+        }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
