@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Flekt.Computer.Abstractions;
 using Flekt.Computer.Abstractions.Contracts;
+using Flekt.Computer.Interface;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 
@@ -13,7 +15,7 @@ namespace Flekt.Computer.Providers;
 /// Handles session creation, state management, and RDP access through the API.
 /// Uses TypedSignalR.Client for compile-time type safety.
 /// </summary>
-internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyncDisposable
+internal sealed class CloudProvider : IComputerProvider, IClientHubClient, ICommandSender, IAsyncDisposable
 {
     private const int MaxRetries = 3;
     private static readonly TimeSpan ReconnectWaitTimeout = TimeSpan.FromSeconds(30);
@@ -36,6 +38,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
     }
 
     public string? SessionId => _sessionId;
+    string ICommandSender.SessionId => _sessionId ?? throw new InvalidOperationException("No session ID available");
     public ComputerState State => _state;
 
     public async Task ConnectAsync(ComputerOptions options, CancellationToken cancelToken = default)
@@ -87,7 +90,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
             Vcpu = options.Vcpu,
             MemoryGb = options.MemoryGb,
             StorageGb = options.StorageGb,
-            Image = options.Image,
+            ImageId = options.ImageId,
             Tags = options.Tags
         };
 
@@ -125,6 +128,69 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
 
         return rdpInfo;
     }
+
+    #region ICommandSender Implementation
+
+    public async Task<T?> SendCommandAsync<T>(ComputerCommand command, CancellationToken cancelToken = default)
+    {
+        if (_hubProxy == null)
+        {
+            throw new InvalidOperationException("Not connected. Call ConnectAsync first.");
+        }
+
+        if (_state != ComputerState.Ready)
+        {
+            throw new InvalidOperationException($"Computer is not ready (current state: {_state})");
+        }
+
+        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRequests[command.CorrelationId] = tcs;
+
+        try
+        {
+            _logger?.LogDebug("Sending command {CommandType} (CorrelationId: {CorrelationId})",
+                command.GetType().Name, command.CorrelationId);
+
+            await InvokeWithRetryAsync(
+                () => _hubProxy.SendCommand(command),
+                "SendCommand",
+                cancelToken);
+
+            // Wait for response with timeout
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken, timeoutCts.Token);
+
+            var result = await tcs.Task.WaitAsync(linkedCts.Token);
+
+            if (result == null)
+            {
+                return default;
+            }
+
+            // Result is a JsonElement, deserialize to the expected type
+            if (result is JsonElement jsonElement)
+            {
+                return jsonElement.Deserialize<T>();
+            }
+
+            return (T?)result;
+        }
+        catch (OperationCanceledException) when (!cancelToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Command {command.GetType().Name} timed out after 2 minutes");
+        }
+        finally
+        {
+            _pendingRequests.TryRemove(command.CorrelationId, out _);
+        }
+    }
+
+    public async Task SendCommandAsync(ComputerCommand command, CancellationToken cancelToken = default)
+    {
+        await SendCommandAsync<object>(command, cancelToken);
+    }
+
+    #endregion
 
     /// <summary>
     /// Invokes a hub method with automatic retry on connection failures.
@@ -221,6 +287,21 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
         throw new InvalidOperationException(
             $"Failed to invoke {methodName} after {MaxRetries} attempts",
             lastException);
+    }
+
+    /// <summary>
+    /// Invokes a hub method with automatic retry on connection failures (for void-returning methods).
+    /// </summary>
+    private async Task InvokeWithRetryAsync(
+        Func<Task> action,
+        string methodName,
+        CancellationToken cancelToken)
+    {
+        await InvokeWithRetryAsync<object?>(async () =>
+        {
+            await action();
+            return null;
+        }, methodName, cancelToken);
     }
 
     /// <summary>
@@ -426,6 +507,19 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
         
         return Task.CompletedTask;
     }
+
+    public Task DiskImageCaptured(string sessionId, DiskImageInfo imageInfo, string correlationId)
+    {
+        _logger?.LogInformation("Disk image captured: {ImageId} for session {SessionId} ({SizeBytes:N0} bytes)",
+            imageInfo.ImageId, sessionId, imageInfo.SizeBytes);
+        
+        if (_pendingRequests.TryRemove(correlationId, out var tcs))
+        {
+            tcs.TrySetResult(imageInfo);
+        }
+        
+        return Task.CompletedTask;
+    }
     
     #endregion
 
@@ -435,6 +529,65 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
     public Task WaitForReadyAsync(CancellationToken cancelToken = default)
     {
         return _sessionReadyTcs.Task.WaitAsync(cancelToken);
+    }
+
+    public async Task<DiskImageInfo> SaveAsDiskImageAsync(SaveDiskImageOptions options, CancellationToken cancelToken = default)
+    {
+        if (_sessionId == null || _hubProxy == null)
+        {
+            throw new InvalidOperationException("Not connected to a session");
+        }
+
+        _logger?.LogInformation("Saving session {SessionId} as disk image '{Name}'", _sessionId, options.Name);
+
+        var correlationId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRequests[correlationId] = tcs;
+
+        try
+        {
+            // Send the capture request with our correlation ID
+            var imageId = await InvokeWithRetryAsync(
+                () => _hubProxy.SaveAsDiskImage(_sessionId, options, correlationId),
+                nameof(IClientHubServer.SaveAsDiskImage),
+                cancelToken);
+
+            _logger?.LogInformation("Disk image capture initiated for session {SessionId}, imageId: {ImageId}", 
+                _sessionId, imageId);
+
+            // Wait for the DiskImageCaptured callback
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(30)); // Capture can take a while
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken, timeoutCts.Token);
+
+            var result = await tcs.Task.WaitAsync(linkedCts.Token);
+
+            if (result is DiskImageInfo imageInfo)
+            {
+                _logger?.LogInformation("Disk image captured successfully: {ImageId}", imageInfo.ImageId);
+                
+                // Session is ended after capture
+                UpdateState(ComputerState.Stopped);
+                
+                return imageInfo;
+            }
+
+            throw new InvalidOperationException("Unexpected response type from DiskImageCaptured callback");
+        }
+        catch (OperationCanceledException) when (cancelToken.IsCancellationRequested)
+        {
+            _pendingRequests.TryRemove(correlationId, out _);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            _pendingRequests.TryRemove(correlationId, out _);
+            throw new TimeoutException("Disk image capture timed out after 30 minutes");
+        }
+        catch
+        {
+            _pendingRequests.TryRemove(correlationId, out _);
+            throw;
+        }
     }
 
     private void UpdateState(ComputerState newState)
@@ -448,3 +601,5 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IAsyn
         }
     }
 }
+
+

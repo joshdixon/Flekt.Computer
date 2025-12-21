@@ -1,4 +1,5 @@
 using Flekt.Computer.Abstractions;
+using Flekt.Computer.Interface;
 using Flekt.Computer.Providers;
 using Microsoft.Extensions.Logging;
 
@@ -12,11 +13,18 @@ public sealed class Computer : IComputer
 {
     private readonly IComputerProvider _provider;
     private readonly ComputerOptions _options;
+    private readonly IComputerInterface? _interface;
 
     private Computer(IComputerProvider provider, ComputerOptions options)
     {
         _provider = provider;
         _options = options;
+        
+        // Create interface if provider supports command sending
+        if (provider is ICommandSender commandSender)
+        {
+            _interface = new ComputerInterface(commandSender);
+        }
         
         // Forward state change events from provider
         _provider.StateChanged += (sender, state) => StateChanged?.Invoke(this, state);
@@ -58,9 +66,8 @@ public sealed class Computer : IComputer
     
     public ComputerState State => _provider.State;
     
-    public IComputerInterface Interface => throw new NotImplementedException(
-        "Full Computer interface (Mouse, Keyboard, Screen, etc.) is not yet implemented. " +
-        "Currently, only session creation and RDP access are supported.");
+    public IComputerInterface Interface => _interface 
+        ?? throw new NotSupportedException("This provider does not support the Computer interface.");
     
     public IComputerTracing Tracing => throw new NotImplementedException(
         "Tracing/recording functionality is not yet implemented.");
@@ -108,7 +115,12 @@ public sealed class Computer : IComputer
 
     public Task<EnvironmentInfo> SaveAsEnvironment(SaveEnvironmentOptions options, CancellationToken cancelToken = default)
     {
-        throw new NotImplementedException("SaveAsEnvironment is not yet implemented.");
+        throw new NotImplementedException("SaveAsEnvironment is not yet implemented - use SaveAsDiskImage instead.");
+    }
+
+    public Task<DiskImageInfo> SaveAsDiskImage(SaveDiskImageOptions options, CancellationToken cancelToken = default)
+    {
+        return _provider.SaveAsDiskImageAsync(options, cancelToken);
     }
 
     public async ValueTask DisposeAsync()
@@ -116,5 +128,7 @@ public sealed class Computer : IComputer
         await _provider.DisposeAsync();
     }
 }
+
+
 
 

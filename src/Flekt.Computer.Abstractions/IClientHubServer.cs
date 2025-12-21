@@ -56,7 +56,7 @@ public interface IClientHubServer
     /// Fire-and-forget: completion notified via DiskImageCaptured callback.
     /// </summary>
     /// <returns>The image ID that was assigned to the capture request.</returns>
-    Task<string> SaveAsDiskImage(string sessionId, SaveDiskImageOptions options);
+    Task<string> SaveAsDiskImage(string sessionId, SaveDiskImageOptions options, string correlationId);
 
     /// <summary>
     /// Ends the session and cleans up resources.

@@ -47,7 +47,7 @@ var result = await computer.Interface.Shell.Run("dir");
 services.AddFlektComputer(options =>
 {
     options.DefaultProvider = ProviderType.Cloud;
-    options.ApiBaseUrl = "https://api.flekt.computer";
+    options.ApiBaseUrl = "https://api.computer.flekt.co";
     options.ApiKey = configuration["FlektComputer:ApiKey"];
 });
 

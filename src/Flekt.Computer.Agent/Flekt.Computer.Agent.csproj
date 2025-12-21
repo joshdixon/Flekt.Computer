@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+        
+        <!-- NuGet Package Metadata -->
+        <PackageId>Flekt.Computer.Agent</PackageId>
+        <Version>0.1.0-preview</Version>
+        <Authors>Flekt</Authors>
+        <Description>AI Agent SDK for computer control via vision-language models (OpenRouter)</Description>
+        <PackageTags>ai;agent;computer-use;automation;llm;vlm;openrouter</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/joshdixon/flekt</RepositoryUrl>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Reference the Computer SDK -->
+        <ProjectReference Include="..\Flekt.Computer\Flekt.Computer.csproj" />
+        
+        <!-- HTTP client for LLM APIs -->
+        <PackageReference Include="System.Net.Http.Json" Version="10.0.0" />
+        
+        <!-- JSON for message handling -->
+        <PackageReference Include="System.Text.Json" Version="10.0.0" />
+        
+        <!-- Async extensions -->
+        <PackageReference Include="System.Linq.Async" Version="6.0.1" />
+        
+        <!-- Image processing for vision models -->
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
+        
+        <!-- Logging -->
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    </ItemGroup>
+
+</Project>
+

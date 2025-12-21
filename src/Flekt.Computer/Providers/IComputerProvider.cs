@@ -39,6 +39,18 @@ public interface IComputerProvider : IAsyncDisposable
     /// <param name="cancelToken">Cancellation token.</param>
     /// <returns>RDP connection information including credentials.</returns>
     Task<RdpAccessInfo> GetRdpAccessAsync(TimeSpan? duration = null, CancellationToken cancelToken = default);
+
+    /// <summary>
+    /// Captures the current VM disk state as a new reusable image.
+    /// ⚠️ WARNING: This operation will STOP the VM and END the session.
+    /// </summary>
+    /// <param name="options">Options for the disk image.</param>
+    /// <param name="cancelToken">Cancellation token.</param>
+    /// <returns>Information about the captured disk image.</returns>
+    Task<DiskImageInfo> SaveAsDiskImageAsync(SaveDiskImageOptions options, CancellationToken cancelToken = default);
 }
+
+
+
 
 
