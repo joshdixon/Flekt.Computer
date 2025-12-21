@@ -163,9 +163,13 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             // Check if this is the last chunk
             if (chunk.Choices[0].FinishReason != null)
             {
+                _logger?.LogInformation("OpenRouter: Stream finished with reason={FinishReason}, ToolCalls={ToolCallCount}, ContentLength={ContentLength}",
+                    chunk.Choices[0].FinishReason, currentToolCall.Count, accumulatedContent.Length);
+
                 // Yield all accumulated tool calls first
                 foreach (var tc in currentToolCall.Values)
                 {
+                    _logger?.LogInformation("OpenRouter: Yielding tool call {Name} (id={Id})", tc.Name, tc.Id);
                     yield return new AgentResult
                     {
                         Type = AgentResultType.ToolCall,
@@ -183,6 +187,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 var hasToolCalls = currentToolCall.Count > 0;
                 if (accumulatedContent.Length > 0 || !hasToolCalls)
                 {
+                    _logger?.LogInformation("OpenRouter: Yielding message (ContinueLoop={ContinueLoop})", hasToolCalls);
                     yield return new AgentResult
                     {
                         Type = AgentResultType.Message,

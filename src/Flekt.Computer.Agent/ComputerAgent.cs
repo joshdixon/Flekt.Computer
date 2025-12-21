@@ -47,19 +47,32 @@ public sealed class ComputerAgent : IAsyncDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var messageList = messages.ToList();
-        _logger?.LogInformation("Agent run started with {Count} messages", messageList.Count);
+        _logger?.LogInformation("ComputerAgent: Run started with {Count} messages", messageList.Count);
 
         var iterations = 0;
 
         while (!cancellationToken.IsCancellationRequested && iterations < _options.MaxIterations)
         {
             iterations++;
-            _logger?.LogDebug("Agent iteration {Iteration} started", iterations);
+            _logger?.LogInformation("ComputerAgent: Iteration {Iteration}/{MaxIterations} started", iterations, _options.MaxIterations);
 
             // Take screenshot for vision context
-            byte[] screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
-            var screenSize = await _computer.Interface.Screen.GetSize(cancellationToken);
-            
+            _logger?.LogDebug("ComputerAgent: Taking screenshot...");
+            byte[] screenshot;
+            ScreenSize screenSize;
+            try
+            {
+                screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
+                screenSize = await _computer.Interface.Screen.GetSize(cancellationToken);
+                _logger?.LogInformation("ComputerAgent: Screenshot taken, size={Width}x{Height}, bytes={Bytes}",
+                    screenSize.Width, screenSize.Height, screenshot.Length);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "ComputerAgent: Failed to take screenshot");
+                throw;
+            }
+
             // Convert to base64 for LLM
             string screenshotBase64 = Convert.ToBase64String(screenshot);
             
@@ -72,13 +85,15 @@ public sealed class ComputerAgent : IAsyncDisposable
             
             // Prepare messages with screenshot context
             var contextMessages = PrepareMessages(messageList, screenshotBase64, screenSize);
-            
+            _logger?.LogInformation("ComputerAgent: Prepared {Count} messages for LLM (including screenshot)", contextMessages.Count);
+
             // Call LLM with streaming
             // Collect tool calls first, then execute them after we have the full response
             var pendingToolCalls = new List<ToolCall>();
             string? assistantContent = null;
             bool continueLoop = false;
 
+            _logger?.LogInformation("ComputerAgent: Calling LLM...");
             await foreach (var chunk in _llmProvider.StreamChatAsync(contextMessages, cancellationToken))
             {
                 // Yield reasoning/thinking
@@ -106,6 +121,8 @@ public sealed class ComputerAgent : IAsyncDisposable
 
             // Now process the response: add assistant message with tool calls, then execute tools
             bool hasToolCalls = pendingToolCalls.Count > 0;
+            _logger?.LogInformation("ComputerAgent: LLM response received - ToolCalls={ToolCallCount}, HasContent={HasContent}, ContinueLoop={ContinueLoop}",
+                pendingToolCalls.Count, !string.IsNullOrEmpty(assistantContent), continueLoop);
 
             if (hasToolCalls)
             {
@@ -120,12 +137,15 @@ public sealed class ComputerAgent : IAsyncDisposable
                 // Execute each tool call and add results
                 foreach (var toolCall in pendingToolCalls)
                 {
+                    _logger?.LogInformation("ComputerAgent: Executing tool {ToolName} (id={ToolId})", toolCall.Name, toolCall.Id);
                     var toolResult = await ExecuteToolCall(toolCall, cancellationToken);
                     messageList.Add(toolResult);
+                    _logger?.LogInformation("ComputerAgent: Tool {ToolName} executed, result added to messages", toolCall.Name);
 
                     // Take screenshot after action
                     if (_options.ScreenshotAfterAction)
                     {
+                        _logger?.LogDebug("ComputerAgent: Taking post-action screenshot...");
                         await Task.Delay(_options.ScreenshotDelay, cancellationToken);
                         screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
                         screenshotBase64 = Convert.ToBase64String(screenshot);
@@ -137,6 +157,7 @@ public sealed class ComputerAgent : IAsyncDisposable
                         };
                     }
                 }
+                _logger?.LogInformation("ComputerAgent: All {Count} tool calls executed, continuing loop", pendingToolCalls.Count);
             }
             else if (!string.IsNullOrEmpty(assistantContent))
             {
@@ -146,34 +167,39 @@ public sealed class ComputerAgent : IAsyncDisposable
                     Role = AgentRole.Assistant,
                     Content = assistantContent
                 });
+                _logger?.LogInformation("ComputerAgent: Added assistant message to history (no tool calls)");
             }
 
             // Check if we should stop
             if (!continueLoop && !hasToolCalls)
             {
-                _logger?.LogInformation("Agent run completed after {Iterations} iterations", iterations);
+                _logger?.LogInformation("ComputerAgent: Stopping - no tool calls and continueLoop=false after {Iterations} iterations", iterations);
                 yield break;
             }
 
             // If we had tool calls, continue the loop to send results back to LLM
             if (hasToolCalls)
             {
+                _logger?.LogInformation("ComputerAgent: Continuing loop after tool execution");
                 continue;
             }
 
             // If no tool calls and no explicit stop, break
+            _logger?.LogInformation("ComputerAgent: Breaking loop - no tool calls and no explicit stop");
             break;
         }
 
         if (iterations >= _options.MaxIterations)
         {
-            _logger?.LogWarning("Agent reached max iterations: {MaxIterations}", _options.MaxIterations);
+            _logger?.LogWarning("ComputerAgent: Reached max iterations: {MaxIterations}", _options.MaxIterations);
             yield return new AgentResult
             {
                 Type = AgentResultType.Error,
                 Content = $"Agent reached maximum iterations ({_options.MaxIterations})"
             };
         }
+
+        _logger?.LogInformation("ComputerAgent: Run completed, total iterations={Iterations}", iterations);
     }
 
     private List<LlmMessage> PrepareMessages(
@@ -297,7 +323,7 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
     {
         try
         {
-            _logger?.LogInformation("Executing tool: {Tool} with args: {Args}", 
+            _logger?.LogInformation("ComputerAgent: Executing tool {Tool} with args: {Args}",
                 toolCall.Name, toolCall.Arguments);
 
             // Parse tool calls and execute on computer interface
@@ -311,16 +337,19 @@ Be precise with coordinates and actions. If something doesn't work, try a differ
                 _ => throw new NotSupportedException($"Unknown tool: {toolCall.Name}")
             };
 
+            var resultJson = JsonSerializer.Serialize(result);
+            _logger?.LogInformation("ComputerAgent: Tool {Tool} succeeded: {Result}", toolCall.Name, resultJson);
+
             return new AgentMessage
             {
                 Role = AgentRole.Tool,
                 ToolCallId = toolCall.Id,
-                Content = JsonSerializer.Serialize(result)
+                Content = resultJson
             };
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Tool execution failed: {Tool}", toolCall.Name);
+            _logger?.LogError(ex, "ComputerAgent: Tool execution failed: {Tool}", toolCall.Name);
             return new AgentMessage
             {
                 Role = AgentRole.Tool,
