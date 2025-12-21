@@ -70,6 +70,12 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 msg["tool_call_id"] = m.ToolCallId;
             }
 
+            // Include reasoning for assistant messages that have it (required for some models)
+            if (!string.IsNullOrEmpty(m.Reasoning))
+            {
+                msg["reasoning"] = m.Reasoning;
+            }
+
             return msg;
         }).ToList();
 
@@ -79,10 +85,10 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             ["messages"] = formattedMessages,
             ["stream"] = true,
             ["tools"] = GetToolDefinitions(),
-            // Exclude reasoning tokens - we don't handle them yet
+            // Enable reasoning tokens for models that support it
             ["reasoning"] = new Dictionary<string, object>
             {
-                ["exclude"] = true
+                ["max_tokens"] = 8000
             }
         };
 
@@ -106,6 +112,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
 
         var currentToolCall = new Dictionary<int, ToolCallBuilder>();
         var accumulatedContent = new System.Text.StringBuilder();
+        var accumulatedReasoning = new System.Text.StringBuilder();
 
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
@@ -154,6 +161,16 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 }
             }
 
+            // Accumulate reasoning content (may come as "reasoning" or "reasoning_content")
+            if (!string.IsNullOrEmpty(delta?.Reasoning))
+            {
+                accumulatedReasoning.Append(delta.Reasoning);
+            }
+            if (!string.IsNullOrEmpty(delta?.ReasoningContent))
+            {
+                accumulatedReasoning.Append(delta.ReasoningContent);
+            }
+
             // Accumulate text content (don't yield yet - wait for stream to complete)
             if (!string.IsNullOrEmpty(delta?.Content))
             {
@@ -163,10 +180,21 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             // Check if this is the last chunk
             if (chunk.Choices[0].FinishReason != null)
             {
-                _logger?.LogInformation("OpenRouter: Stream finished with reason={FinishReason}, ToolCalls={ToolCallCount}, ContentLength={ContentLength}",
-                    chunk.Choices[0].FinishReason, currentToolCall.Count, accumulatedContent.Length);
+                _logger?.LogInformation("OpenRouter: Stream finished with reason={FinishReason}, ToolCalls={ToolCallCount}, ContentLength={ContentLength}, ReasoningLength={ReasoningLength}",
+                    chunk.Choices[0].FinishReason, currentToolCall.Count, accumulatedContent.Length, accumulatedReasoning.Length);
 
-                // Yield all accumulated tool calls first
+                // Yield reasoning first if present
+                if (accumulatedReasoning.Length > 0)
+                {
+                    _logger?.LogInformation("OpenRouter: Yielding reasoning ({Length} chars)", accumulatedReasoning.Length);
+                    yield return new AgentResult
+                    {
+                        Type = AgentResultType.Reasoning,
+                        Content = accumulatedReasoning.ToString()
+                    };
+                }
+
+                // Yield all accumulated tool calls
                 foreach (var tc in currentToolCall.Values)
                 {
                     _logger?.LogInformation("OpenRouter: Yielding tool call {Name} (id={Id})", tc.Name, tc.Id);
@@ -343,9 +371,24 @@ internal class OpenRouterDelta
 {
     [JsonPropertyName("content")]
     public string? Content { get; set; }
-    
+
+    [JsonPropertyName("reasoning")]
+    public string? Reasoning { get; set; }
+
+    [JsonPropertyName("reasoning_content")]
+    public string? ReasoningContent { get; set; }
+
     [JsonPropertyName("tool_calls")]
     public List<OpenRouterToolCall>? ToolCalls { get; set; }
+}
+
+internal class OpenRouterReasoningDetails
+{
+    [JsonPropertyName("redacted_reasoning_content")]
+    public string? RedactedContent { get; set; }
+
+    [JsonPropertyName("encrypted_content")]
+    public string? EncryptedContent { get; set; }
 }
 
 internal class OpenRouterToolCall

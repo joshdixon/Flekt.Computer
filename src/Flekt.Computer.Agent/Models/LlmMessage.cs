@@ -9,6 +9,12 @@ public class LlmMessage
     public List<LlmContent> Content { get; init; } = new();
     public List<ToolCall>? ToolCalls { get; set; }
     public string? ToolCallId { get; set; }
+
+    /// <summary>
+    /// Reasoning/thinking content from models that support it.
+    /// May be encrypted/redacted depending on the provider.
+    /// </summary>
+    public string? Reasoning { get; set; }
 }
 
 public class LlmContent
