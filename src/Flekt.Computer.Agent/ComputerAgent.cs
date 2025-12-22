@@ -95,6 +95,24 @@ public sealed class ComputerAgent : IAsyncDisposable
                 throw;
             }
 
+            // Yield the screenshot so callers can see/save it (outside try-catch due to C# yield limitations)
+            yield return new AgentResult
+            {
+                Type = AgentResultType.Screenshot,
+                Screenshot = currentContext.ScreenshotBase64,
+                AnnotatedScreenshot = currentContext.OmniParserResult?.AnnotatedImageBase64,
+                OmniParserElements = currentContext.OmniParserResult?.Elements
+                    .Select(e => new OmniParserElementInfo
+                    {
+                        Id = e.Id,
+                        Type = e.Type,
+                        Content = e.Content,
+                        CenterX = e.Center[0],
+                        CenterY = e.Center[1],
+                        Interactivity = e.Interactivity
+                    }).ToList()
+            };
+
             // Prepare messages with all recent screenshots from history
             var contextMessages = PrepareMessages(messageList);
             _logger?.LogInformation("ComputerAgent: Prepared {Count} messages for LLM (including {ScreenshotCount} screenshots)",
@@ -105,6 +123,7 @@ public sealed class ComputerAgent : IAsyncDisposable
             var pendingToolCalls = new List<ToolCall>();
             string? assistantContent = null;
             bool continueLoop = false;
+            System.Text.Json.JsonElement? reasoningDetails = null;
 
             _logger?.LogInformation("ComputerAgent: Calling LLM...");
             await foreach (var chunk in _llmProvider.StreamChatAsync(contextMessages, cancellationToken))
@@ -128,6 +147,7 @@ public sealed class ComputerAgent : IAsyncDisposable
                 {
                     assistantContent = chunk.Content;
                     continueLoop = chunk.ContinueLoop;
+                    reasoningDetails = chunk.ReasoningDetails;
                     yield return chunk;
                 }
             }
@@ -140,11 +160,13 @@ public sealed class ComputerAgent : IAsyncDisposable
             if (hasToolCalls)
             {
                 // Add assistant message WITH tool calls to history (required by OpenAI API)
+                // Include reasoning_details for Gemini models
                 messageList.Add(new AgentMessage
                 {
                     Role = AgentRole.Assistant,
                     Content = assistantContent,
-                    ToolCalls = pendingToolCalls
+                    ToolCalls = pendingToolCalls,
+                    ReasoningDetails = reasoningDetails
                 });
 
                 // Execute each tool call and add results
@@ -155,21 +177,6 @@ public sealed class ComputerAgent : IAsyncDisposable
                     messageList.Add(toolResult);
                     _logger?.LogInformation("ComputerAgent: Tool {ToolName} executed, result added to messages", toolCall.Name);
 
-                    // Take screenshot after action (adds to history for next LLM call)
-                    if (_options.ScreenshotAfterAction)
-                    {
-                        _logger?.LogDebug("ComputerAgent: Taking post-action screenshot...");
-                        await Task.Delay(_options.ScreenshotDelay, cancellationToken);
-
-                        var postActionContext = await CaptureScreenshotAsync(cancellationToken);
-
-                        yield return new AgentResult
-                        {
-                            Type = AgentResultType.Screenshot,
-                            Screenshot = postActionContext.ScreenshotBase64,
-                            AnnotatedScreenshot = postActionContext.OmniParserResult?.AnnotatedImageBase64
-                        };
-                    }
                 }
                 _logger?.LogInformation("ComputerAgent: All {Count} tool calls executed, continuing loop", pendingToolCalls.Count);
             }
@@ -179,7 +186,8 @@ public sealed class ComputerAgent : IAsyncDisposable
                 messageList.Add(new AgentMessage
                 {
                     Role = AgentRole.Assistant,
-                    Content = assistantContent
+                    Content = assistantContent,
+                    ReasoningDetails = reasoningDetails
                 });
                 _logger?.LogInformation("ComputerAgent: Added assistant message to history (no tool calls)");
             }
@@ -317,6 +325,12 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
             if (!string.IsNullOrEmpty(msg.ToolCallId))
             {
                 llmMsg.ToolCallId = msg.ToolCallId;
+            }
+
+            // Pass through reasoning_details for Gemini models
+            if (msg.ReasoningDetails.HasValue)
+            {
+                llmMsg.ReasoningDetails = msg.ReasoningDetails;
             }
 
             llmMessages.Add(llmMsg);
@@ -537,6 +551,8 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
                     screenshotBase64,
                     _screenSize.Width,
                     _screenSize.Height,
+                    _options.OmniParserBoxThreshold,
+                    _options.OmniParserIouThreshold,
                     cancellationToken);
                 _logger?.LogInformation("ComputerAgent: OmniParser detected {Count} UI elements",
                     omniParserResult.Elements.Count);

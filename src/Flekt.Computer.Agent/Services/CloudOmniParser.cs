@@ -35,17 +35,20 @@ public class CloudOmniParser : IOmniParser
         string screenshotBase64,
         int imageWidth,
         int imageHeight,
+        double boxThreshold = 0.3,
+        double iouThreshold = 0.1,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("CloudOmniParser: Sending {Width}x{Height} image", imageWidth, imageHeight);
+        _logger?.LogInformation("CloudOmniParser: Sending {Width}x{Height} image (boxThreshold={BoxThreshold}, iouThreshold={IouThreshold})",
+            imageWidth, imageHeight, boxThreshold, iouThreshold);
 
         var request = new OmniParserRequest
         {
             Image = screenshotBase64,
             Width = imageWidth,
             Height = imageHeight,
-            BoxThreshold = 0.3,
-            IouThreshold = 0.1,
+            BoxThreshold = boxThreshold,
+            IouThreshold = iouThreshold,
             UseOcr = true
         };
 

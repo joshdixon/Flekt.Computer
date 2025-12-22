@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Flekt.Computer.Agent.Models;
 
 /// <summary>
@@ -15,6 +17,12 @@ public class LlmMessage
     /// May be encrypted/redacted depending on the provider.
     /// </summary>
     public string? Reasoning { get; set; }
+
+    /// <summary>
+    /// Raw reasoning_details from OpenRouter/Gemini responses.
+    /// Must be preserved and sent back unchanged for reasoning continuity.
+    /// </summary>
+    public JsonElement? ReasoningDetails { get; set; }
 }
 
 public class LlmContent

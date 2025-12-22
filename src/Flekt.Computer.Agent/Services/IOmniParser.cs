@@ -73,11 +73,15 @@ public interface IOmniParser
     /// <param name="screenshotBase64">Base64-encoded screenshot image.</param>
     /// <param name="imageWidth">Width of the image in pixels.</param>
     /// <param name="imageHeight">Height of the image in pixels.</param>
+    /// <param name="boxThreshold">Detection confidence threshold (0.0-1.0). Higher = fewer but more confident detections.</param>
+    /// <param name="iouThreshold">IOU threshold for non-maximum suppression.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>OmniParser result with detected elements and annotated image.</returns>
     Task<OmniParserResult> ParseAsync(
         string screenshotBase64,
         int imageWidth,
         int imageHeight,
+        double boxThreshold = 0.3,
+        double iouThreshold = 0.1,
         CancellationToken cancellationToken = default);
 }

@@ -22,7 +22,9 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
         
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri("https://openrouter.ai/api/v1/")
+            BaseAddress = new Uri("https://openrouter.ai/api/v1/"),
+            // Increase timeout for large vision requests with multiple screenshots
+            Timeout = TimeSpan.FromMinutes(5)
         };
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         _httpClient.DefaultRequestHeaders.Add("HTTP-Referer", "https://flekt.computer");
@@ -52,15 +54,26 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             // Only add tool_calls for assistant messages that have them
             if (m.ToolCalls != null && m.ToolCalls.Count > 0)
             {
-                msg["tool_calls"] = m.ToolCalls.Select(tc => new
+                msg["tool_calls"] = m.ToolCalls.Select(tc =>
                 {
-                    id = tc.Id,
-                    type = "function",
-                    function = new
+                    var toolCall = new Dictionary<string, object?>
                     {
-                        name = tc.Name,
-                        arguments = tc.Arguments
+                        ["id"] = tc.Id,
+                        ["type"] = "function",
+                        ["function"] = new
+                        {
+                            name = tc.Name,
+                            arguments = tc.Arguments
+                        }
+                    };
+
+                    // Include thought_signature for Gemini models (required for reasoning preservation)
+                    if (!string.IsNullOrEmpty(tc.ThoughtSignature))
+                    {
+                        toolCall["thought_signature"] = tc.ThoughtSignature;
                     }
+
+                    return toolCall;
                 }).ToList();
             }
 
@@ -76,6 +89,12 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 msg["reasoning"] = m.Reasoning;
             }
 
+            // Include reasoning_details for Gemini models (must be preserved unchanged)
+            if (m.ReasoningDetails.HasValue && m.ReasoningDetails.Value.ValueKind != JsonValueKind.Null)
+            {
+                msg["reasoning_details"] = m.ReasoningDetails.Value;
+            }
+
             return msg;
         }).ToList();
 
@@ -86,9 +105,11 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             ["stream"] = true,
             ["tools"] = GetToolDefinitions(),
             // Enable reasoning tokens for models that support it
+            // include_reasoning is required for Gemini to return thought_signature in tool calls
             ["reasoning"] = new Dictionary<string, object>
             {
-                ["max_tokens"] = 8000
+                ["max_tokens"] = 8000,
+                ["include_reasoning"] = true
             }
         };
 
@@ -113,6 +134,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
         var currentToolCall = new Dictionary<int, ToolCallBuilder>();
         var accumulatedContent = new System.Text.StringBuilder();
         var accumulatedReasoning = new System.Text.StringBuilder();
+        JsonElement? capturedReasoningDetails = null;
 
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
@@ -141,9 +163,19 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             // Handle tool calls (streaming chunks)
             if (delta?.ToolCalls != null)
             {
+                // Log raw JSON to see full structure
+                _logger?.LogTrace("OpenRouter: Raw chunk with tool calls: {Json}", json);
+            }
+            if (delta?.ToolCalls != null)
+            {
                 foreach (var toolCallChunk in delta.ToolCalls)
                 {
                     var index = toolCallChunk.Index;
+
+                    // Log raw tool call chunk for debugging
+                    _logger?.LogDebug("OpenRouter: Tool call chunk index={Index}, id={Id}, name={Name}, thoughtSig={ThoughtSig}",
+                        index, toolCallChunk.Id ?? "(null)", toolCallChunk.Function?.Name ?? "(null)",
+                        toolCallChunk.ThoughtSignature ?? "(null)");
 
                     if (!currentToolCall.ContainsKey(index))
                     {
@@ -157,6 +189,13 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                     if (toolCallChunk.Function?.Arguments != null)
                     {
                         currentToolCall[index].Arguments += toolCallChunk.Function.Arguments;
+                    }
+
+                    // Capture thought_signature for Gemini models
+                    if (!string.IsNullOrEmpty(toolCallChunk.ThoughtSignature))
+                    {
+                        _logger?.LogInformation("OpenRouter: Captured thought_signature for tool call {Name}", toolCallChunk.Function?.Name);
+                        currentToolCall[index].ThoughtSignature = toolCallChunk.ThoughtSignature;
                     }
                 }
             }
@@ -175,6 +214,18 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             if (!string.IsNullOrEmpty(delta?.Content))
             {
                 accumulatedContent.Append(delta.Content);
+            }
+
+            // Capture reasoning_details from choice or delta (for Gemini models)
+            if (chunk.Choices[0].ReasoningDetails.HasValue && chunk.Choices[0].ReasoningDetails.Value.ValueKind != JsonValueKind.Null)
+            {
+                capturedReasoningDetails = chunk.Choices[0].ReasoningDetails;
+                _logger?.LogDebug("OpenRouter: Captured reasoning_details from choice");
+            }
+            if (delta?.ReasoningDetails.HasValue == true && delta.ReasoningDetails.Value.ValueKind != JsonValueKind.Null)
+            {
+                capturedReasoningDetails = delta.ReasoningDetails;
+                _logger?.LogDebug("OpenRouter: Captured reasoning_details from delta");
             }
 
             // Check if this is the last chunk
@@ -197,7 +248,8 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 // Yield all accumulated tool calls
                 foreach (var tc in currentToolCall.Values)
                 {
-                    _logger?.LogInformation("OpenRouter: Yielding tool call {Name} (id={Id})", tc.Name, tc.Id);
+                    _logger?.LogInformation("OpenRouter: Yielding tool call {Name} (id={Id}, hasThoughtSignature={HasSig})",
+                        tc.Name, tc.Id, !string.IsNullOrEmpty(tc.ThoughtSignature));
                     yield return new AgentResult
                     {
                         Type = AgentResultType.ToolCall,
@@ -205,7 +257,8 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                         {
                             Id = tc.Id,
                             Name = tc.Name,
-                            Arguments = tc.Arguments
+                            Arguments = tc.Arguments,
+                            ThoughtSignature = tc.ThoughtSignature
                         }
                     };
                 }
@@ -215,12 +268,14 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
                 var hasToolCalls = currentToolCall.Count > 0;
                 if (accumulatedContent.Length > 0 || !hasToolCalls)
                 {
-                    _logger?.LogInformation("OpenRouter: Yielding message (ContinueLoop={ContinueLoop})", hasToolCalls);
+                    _logger?.LogInformation("OpenRouter: Yielding message (ContinueLoop={ContinueLoop}, hasReasoningDetails={HasDetails})",
+                        hasToolCalls, capturedReasoningDetails.HasValue);
                     yield return new AgentResult
                     {
                         Type = AgentResultType.Message,
                         Content = accumulatedContent.ToString(),
-                        ContinueLoop = hasToolCalls
+                        ContinueLoop = hasToolCalls,
+                        ReasoningDetails = capturedReasoningDetails
                     };
                 }
 
@@ -345,6 +400,7 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string Arguments { get; set; } = "";
+        public string? ThoughtSignature { get; set; }
     }
 }
 
@@ -362,9 +418,15 @@ internal class OpenRouterChoice
 {
     [JsonPropertyName("delta")]
     public OpenRouterDelta? Delta { get; set; }
-    
+
     [JsonPropertyName("finish_reason")]
     public string? FinishReason { get; set; }
+
+    /// <summary>
+    /// Reasoning details for Gemini models - must be preserved and sent back.
+    /// </summary>
+    [JsonPropertyName("reasoning_details")]
+    public JsonElement? ReasoningDetails { get; set; }
 }
 
 internal class OpenRouterDelta
@@ -380,6 +442,12 @@ internal class OpenRouterDelta
 
     [JsonPropertyName("tool_calls")]
     public List<OpenRouterToolCall>? ToolCalls { get; set; }
+
+    /// <summary>
+    /// Reasoning details for Gemini models - must be preserved and sent back.
+    /// </summary>
+    [JsonPropertyName("reasoning_details")]
+    public JsonElement? ReasoningDetails { get; set; }
 }
 
 internal class OpenRouterReasoningDetails
@@ -395,15 +463,21 @@ internal class OpenRouterToolCall
 {
     [JsonPropertyName("index")]
     public int Index { get; set; }
-    
+
     [JsonPropertyName("id")]
     public string? Id { get; set; }
-    
+
     [JsonPropertyName("type")]
     public string? Type { get; set; }
-    
+
     [JsonPropertyName("function")]
     public OpenRouterFunction? Function { get; set; }
+
+    /// <summary>
+    /// Thought signature for Gemini models - must be preserved and sent back.
+    /// </summary>
+    [JsonPropertyName("thought_signature")]
+    public string? ThoughtSignature { get; set; }
 }
 
 internal class OpenRouterFunction

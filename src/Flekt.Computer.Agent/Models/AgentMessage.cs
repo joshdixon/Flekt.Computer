@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Flekt.Computer.Agent.Models;
 
 public enum AgentRole
@@ -15,6 +17,12 @@ public class AgentMessage
     public string? ToolCallId { get; init; }
     public List<ToolCall>? ToolCalls { get; init; }
     public List<ImageContent>? Images { get; init; }
+
+    /// <summary>
+    /// Raw reasoning_details from OpenRouter/Gemini responses.
+    /// Must be preserved and sent back unchanged for reasoning continuity.
+    /// </summary>
+    public JsonElement? ReasoningDetails { get; init; }
 }
 
 public class ImageContent
@@ -30,6 +38,12 @@ public class ToolCall
     public required string Id { get; init; }
     public required string Name { get; init; }
     public required string Arguments { get; init; } // JSON string
+
+    /// <summary>
+    /// Thought signature for Gemini models. Must be preserved and sent back
+    /// with the tool call when continuing the conversation.
+    /// </summary>
+    public string? ThoughtSignature { get; init; }
 }
 
 public enum AgentResultType
@@ -48,9 +62,35 @@ public class AgentResult
     public ToolCall? ToolCall { get; init; }
     public string? Screenshot { get; init; } // Base64
     public string? AnnotatedScreenshot { get; init; } // Base64 - OmniParser annotated version
+
+    /// <summary>
+    /// OmniParser detected elements (when Screenshot type and OmniParser is enabled).
+    /// Each element contains: Id, Type, Content, BoundingBox, Center, Interactivity.
+    /// </summary>
+    public List<OmniParserElementInfo>? OmniParserElements { get; init; }
+
+    /// <summary>
+    /// Raw reasoning_details from OpenRouter/Gemini responses.
+    /// Must be preserved and sent back unchanged for reasoning continuity.
+    /// </summary>
+    public JsonElement? ReasoningDetails { get; init; }
+
     public AgentMessage? Message { get; init; }
     public bool ContinueLoop { get; init; } = true;
     public AgentUsage? Usage { get; init; }
+}
+
+/// <summary>
+/// Simplified OmniParser element info for AgentResult.
+/// </summary>
+public class OmniParserElementInfo
+{
+    public int Id { get; init; }
+    public required string Type { get; init; }
+    public required string Content { get; init; }
+    public int CenterX { get; init; }
+    public int CenterY { get; init; }
+    public bool Interactivity { get; init; }
 }
 
 public class AgentUsage
@@ -75,6 +115,18 @@ public class ComputerAgentOptions
     /// This dramatically improves click accuracy for all models.
     /// </summary>
     public bool EnableOmniParser { get; init; } = false;
+
+    /// <summary>
+    /// OmniParser detection confidence threshold (0.0-1.0). Higher = fewer but more confident detections.
+    /// Default is 0.3. Try 0.5 for fewer elements.
+    /// </summary>
+    public double OmniParserBoxThreshold { get; init; } = 0.3;
+
+    /// <summary>
+    /// OmniParser IOU threshold for non-maximum suppression. Lower = more aggressive deduplication.
+    /// Default is 0.1.
+    /// </summary>
+    public double OmniParserIouThreshold { get; init; } = 0.1;
 
     /// <summary>
     /// Base URL for the Flekt Computer API (e.g., "https://api.computer.flekt.co").
