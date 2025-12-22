@@ -202,6 +202,12 @@ public sealed class ComputerAgent : IAsyncDisposable
             // If we had tool calls, continue the loop to send results back to LLM
             if (hasToolCalls)
             {
+                // Wait for UI to settle before taking next screenshot
+                if (_options.ScreenshotDelay > TimeSpan.Zero)
+                {
+                    _logger?.LogDebug("ComputerAgent: Waiting {Delay}ms for UI to settle", _options.ScreenshotDelay.TotalMilliseconds);
+                    await Task.Delay(_options.ScreenshotDelay, cancellationToken);
+                }
                 _logger?.LogInformation("ComputerAgent: Continuing loop after tool execution");
                 continue;
             }

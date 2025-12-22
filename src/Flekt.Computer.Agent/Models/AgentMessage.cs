@@ -104,7 +104,7 @@ public class AgentUsage
 public class ComputerAgentOptions
 {
     public bool ScreenshotAfterAction { get; init; } = true;
-    public TimeSpan ScreenshotDelay { get; init; } = TimeSpan.FromMilliseconds(500);
+    public TimeSpan ScreenshotDelay { get; init; } = TimeSpan.FromMilliseconds(1000);
     public int MaxIterations { get; init; } = 100;
     public int OnlyNMostRecentScreenshots { get; init; } = 3;
     public string? SystemPrompt { get; init; }
