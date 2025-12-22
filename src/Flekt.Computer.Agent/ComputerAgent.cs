@@ -514,8 +514,17 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
         keys.Add(args.Key);
 
         var keyCombo = string.Join("+", keys);
-        await _computer.Interface.Keyboard.Press(keyCombo, ct);
-        
+
+        // Use Hotkey when there are modifiers, Press for single keys
+        if (keys.Count > 1)
+        {
+            await _computer.Interface.Keyboard.Hotkey(ct, keys.ToArray());
+        }
+        else
+        {
+            await _computer.Interface.Keyboard.Press(args.Key, ct);
+        }
+
         return new { success = true, key = keyCombo };
     }
 
