@@ -76,24 +76,10 @@ public class ComputerAgentOptions
     public bool EnableOmniParser { get; init; } = false;
 
     /// <summary>
-    /// Replicate API token for OmniParser. Required if EnableOmniParser is true.
+    /// Base URL for the Flekt Computer API (e.g., "https://api.computer.flekt.co").
+    /// Required if EnableOmniParser is true.
     /// </summary>
-    public string? ReplicateApiToken { get; init; }
-
-    /// <summary>
-    /// OmniParser image size for detection (default: 640).
-    /// </summary>
-    public int OmniParserImageSize { get; init; } = 640;
-
-    /// <summary>
-    /// OmniParser box detection threshold (default: 0.05).
-    /// </summary>
-    public double OmniParserBoxThreshold { get; init; } = 0.05;
-
-    /// <summary>
-    /// OmniParser IOU threshold for deduplication (default: 0.1).
-    /// </summary>
-    public double OmniParserIouThreshold { get; init; } = 0.1;
+    public string? OmniParserBaseUrl { get; init; }
 }
 
 

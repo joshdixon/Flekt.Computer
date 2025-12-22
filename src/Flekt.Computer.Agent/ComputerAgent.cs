@@ -40,22 +40,17 @@ public sealed class ComputerAgent : IAsyncDisposable
         // Initialize OmniParser if enabled
         if (_options.EnableOmniParser)
         {
-            if (string.IsNullOrEmpty(_options.ReplicateApiToken))
+            if (string.IsNullOrEmpty(_options.OmniParserBaseUrl))
             {
-                throw new ArgumentException("ReplicateApiToken is required when EnableOmniParser is true");
+                throw new ArgumentException(
+                    "OmniParserBaseUrl is required when EnableOmniParser is true");
             }
 
-            _omniParser = new ReplicateOmniParser(
-                _options.ReplicateApiToken,
-                new ReplicateOmniParserOptions
-                {
-                    ImageSize = _options.OmniParserImageSize,
-                    BoxThreshold = _options.OmniParserBoxThreshold,
-                    IouThreshold = _options.OmniParserIouThreshold
-                },
-                loggerFactory?.CreateLogger<ReplicateOmniParser>());
+            _omniParser = new CloudOmniParser(
+                _options.OmniParserBaseUrl,
+                loggerFactory?.CreateLogger<CloudOmniParser>());
 
-            _logger?.LogInformation("ComputerAgent: OmniParser enabled for UI element detection");
+            _logger?.LogInformation("ComputerAgent: OmniParser enabled");
         }
     }
 
