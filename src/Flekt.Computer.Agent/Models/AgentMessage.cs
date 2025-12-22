@@ -47,6 +47,7 @@ public class AgentResult
     public string? Content { get; init; }
     public ToolCall? ToolCall { get; init; }
     public string? Screenshot { get; init; } // Base64
+    public string? AnnotatedScreenshot { get; init; } // Base64 - OmniParser annotated version
     public AgentMessage? Message { get; init; }
     public bool ContinueLoop { get; init; } = true;
     public AgentUsage? Usage { get; init; }

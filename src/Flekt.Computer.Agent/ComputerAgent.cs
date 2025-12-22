@@ -18,8 +18,16 @@ public sealed class ComputerAgent : IAsyncDisposable
     private readonly ILlmProvider _llmProvider;
     private readonly ComputerAgentOptions _options;
     private readonly ILogger<ComputerAgent>? _logger;
-    private readonly List<string> _screenshotHistory = new();
+    private readonly List<ScreenshotContext> _screenshotHistory = new();
     private readonly IOmniParser? _omniParser;
+    private ScreenSize _screenSize;
+
+    /// <summary>
+    /// Holds a screenshot with its optional OmniParser analysis.
+    /// </summary>
+    private record ScreenshotContext(
+        string ScreenshotBase64,
+        OmniParserResult? OmniParserResult);
 
     public ComputerAgent(
         string model,
@@ -74,16 +82,12 @@ public sealed class ComputerAgent : IAsyncDisposable
             iterations++;
             _logger?.LogInformation("ComputerAgent: Iteration {Iteration}/{MaxIterations} started", iterations, _options.MaxIterations);
 
-            // Take screenshot for vision context
+            // Take screenshot for vision context (adds to history automatically)
             _logger?.LogDebug("ComputerAgent: Taking screenshot...");
-            byte[] screenshot;
-            ScreenSize screenSize;
+            ScreenshotContext currentContext;
             try
             {
-                screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
-                screenSize = await _computer.Interface.Screen.GetSize(cancellationToken);
-                _logger?.LogInformation("ComputerAgent: Screenshot taken, size={Width}x{Height}, bytes={Bytes}",
-                    screenSize.Width, screenSize.Height, screenshot.Length);
+                currentContext = await CaptureScreenshotAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -91,40 +95,10 @@ public sealed class ComputerAgent : IAsyncDisposable
                 throw;
             }
 
-            // Convert to base64 for LLM
-            string screenshotBase64 = Convert.ToBase64String(screenshot);
-
-            // Run OmniParser if enabled
-            OmniParserResult? omniParserResult = null;
-            if (_omniParser != null)
-            {
-                try
-                {
-                    _logger?.LogInformation("ComputerAgent: Running OmniParser analysis...");
-                    omniParserResult = await _omniParser.ParseAsync(
-                        screenshotBase64,
-                        screenSize.Width,
-                        screenSize.Height,
-                        cancellationToken);
-                    _logger?.LogInformation("ComputerAgent: OmniParser detected {Count} UI elements",
-                        omniParserResult.Elements.Count);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "ComputerAgent: OmniParser failed, continuing without element detection");
-                }
-            }
-
-            // Add to history and maintain only N most recent
-            _screenshotHistory.Add(screenshotBase64);
-            if (_screenshotHistory.Count > _options.OnlyNMostRecentScreenshots)
-            {
-                _screenshotHistory.RemoveAt(0);
-            }
-
-            // Prepare messages with screenshot context
-            var contextMessages = PrepareMessages(messageList, screenshotBase64, screenSize, omniParserResult);
-            _logger?.LogInformation("ComputerAgent: Prepared {Count} messages for LLM (including screenshot)", contextMessages.Count);
+            // Prepare messages with all recent screenshots from history
+            var contextMessages = PrepareMessages(messageList);
+            _logger?.LogInformation("ComputerAgent: Prepared {Count} messages for LLM (including {ScreenshotCount} screenshots)",
+                contextMessages.Count, _screenshotHistory.Count);
 
             // Call LLM with streaming
             // Collect tool calls first, then execute them after we have the full response
@@ -181,18 +155,19 @@ public sealed class ComputerAgent : IAsyncDisposable
                     messageList.Add(toolResult);
                     _logger?.LogInformation("ComputerAgent: Tool {ToolName} executed, result added to messages", toolCall.Name);
 
-                    // Take screenshot after action
+                    // Take screenshot after action (adds to history for next LLM call)
                     if (_options.ScreenshotAfterAction)
                     {
                         _logger?.LogDebug("ComputerAgent: Taking post-action screenshot...");
                         await Task.Delay(_options.ScreenshotDelay, cancellationToken);
-                        screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
-                        screenshotBase64 = Convert.ToBase64String(screenshot);
+
+                        var postActionContext = await CaptureScreenshotAsync(cancellationToken);
 
                         yield return new AgentResult
                         {
                             Type = AgentResultType.Screenshot,
-                            Screenshot = screenshotBase64
+                            Screenshot = postActionContext.ScreenshotBase64,
+                            AnnotatedScreenshot = postActionContext.OmniParserResult?.AnnotatedImageBase64
                         };
                     }
                 }
@@ -241,11 +216,7 @@ public sealed class ComputerAgent : IAsyncDisposable
         _logger?.LogInformation("ComputerAgent: Run completed, total iterations={Iterations}", iterations);
     }
 
-    private List<LlmMessage> PrepareMessages(
-        List<AgentMessage> messages,
-        string currentScreenshot,
-        ScreenSize screenSize,
-        OmniParserResult? omniParserResult = null)
+    private List<LlmMessage> PrepareMessages(List<AgentMessage> messages)
     {
         var llmMessages = new List<LlmMessage>();
 
@@ -267,50 +238,30 @@ You can see the screen and perform actions like:
 - keyboard_press(key, modifiers?) - Press a key
 - screenshot() - Take a screenshot
 
-The screen resolution is {screenSize.Width}x{screenSize.Height} pixels. Coordinates start at (0,0) in the top-left corner.";
+The screen resolution is {_screenSize.Width}x{_screenSize.Height} pixels. Coordinates start at (0,0) in the top-left corner.
 
-            // Add OmniParser context if available
-            if (omniParserResult != null && omniParserResult.Elements.Count > 0)
-            {
-                systemPromptText += @"
+## Using OmniParser UI Detection
+Screenshots may include OmniParser analysis with:
+1. An annotated image showing detected UI elements with numbered bounding boxes
+2. A list of detected elements with their coordinates
 
-## Detected UI Elements (from OmniParser)
-You are provided with two images:
-1. The original screenshot
-2. An annotated version with detected UI elements highlighted and numbered
-
-The following UI elements have been detected with their bounding boxes and center coordinates:
-
-";
-                systemPromptText += FormatOmniParserElements(omniParserResult.Elements);
-
-                systemPromptText += @"
+When OmniParser data is provided:
+* Each element has an ID, type (text/icon), content description, and interactivity flag
+* Use the CENTER coordinates provided for each element - these are precise click targets
+* Match the element you want to interact with to one in the list by its content or visual position
+* The annotated image numbers correspond to element IDs in the list
 
 IMPORTANT GUIDELINES FOR CLICKING:
-* Use the detected UI elements above to find precise coordinates
-* When clicking an element, use the CENTER coordinates provided for that element
-* Match the requested element to one in the list and use its center coordinates directly
-* The annotated image shows element numbers that correspond to the list above
-* Coordinates must be integers within the image bounds";
-            }
-            else
-            {
-                systemPromptText += @"
-
-IMPORTANT GUIDELINES FOR CLICKING:
-* Whenever you intend to click on an element, carefully examine the screenshot to determine the EXACT coordinates of the element's center before clicking.
 * Always click in the CENTER of UI elements (buttons, icons, links, text fields), never on their edges.
+* When OmniParser coordinates are provided, use them directly - they are accurate.
+* If no OmniParser data is available, carefully examine the screenshot to estimate coordinates.
 * If a click doesn't work, try adjusting your coordinates so the cursor tip is precisely on the target element.
 * Some applications may take time to respond - if nothing happens after clicking, wait and take another screenshot before trying again.
-* For small elements like checkboxes, radio buttons, or close buttons, be extra precise with coordinates.";
-            }
-
-            systemPromptText += @"
 
 When given a task:
-1. Carefully observe the current screenshot
-2. Identify the exact pixel coordinates of the element you need to interact with
-3. Execute the action with precise coordinates
+1. Carefully observe the current screenshot and any OmniParser element data
+2. Find the target element in the detected elements list, or estimate coordinates from the image
+3. Execute the action using the CENTER coordinates
 4. Take a screenshot to verify the result before proceeding
 
 Remember: Precision is critical. A click that is off by even 20-30 pixels may miss the target element entirely.";
@@ -371,50 +322,57 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
             llmMessages.Add(llmMsg);
         }
 
-        // Add current screenshot(s) as user message
+        // Add all recent screenshots from history as a user message
         var screenshotContent = new List<LlmContent>();
 
-        if (omniParserResult != null)
+        for (int i = 0; i < _screenshotHistory.Count; i++)
         {
-            // Include both original and annotated images when OmniParser is available
+            var ctx = _screenshotHistory[i];
+            var isLatest = i == _screenshotHistory.Count - 1;
+            var label = isLatest ? "Current screenshot" : $"Previous screenshot ({_screenshotHistory.Count - 1 - i} actions ago)";
+
+            // Add the original screenshot
             screenshotContent.Add(new LlmContent
             {
                 Type = "text",
-                Text = "Here is the original screenshot:"
+                Text = $"{label}:"
             });
             screenshotContent.Add(new LlmContent
             {
                 Type = "image_url",
                 ImageUrl = new ImageUrl
                 {
-                    Url = $"data:image/png;base64,{currentScreenshot}"
+                    Url = $"data:image/png;base64,{ctx.ScreenshotBase64}"
                 }
             });
-            screenshotContent.Add(new LlmContent
+
+            // Add annotated version and element data if OmniParser result available
+            if (ctx.OmniParserResult != null)
             {
-                Type = "text",
-                Text = "Here is the OmniParser annotated version with detected elements highlighted:"
-            });
-            screenshotContent.Add(new LlmContent
-            {
-                Type = "image_url",
-                ImageUrl = new ImageUrl
+                screenshotContent.Add(new LlmContent
                 {
-                    Url = $"data:image/png;base64,{omniParserResult.AnnotatedImageBase64}"
-                }
-            });
-        }
-        else
-        {
-            // Just the original screenshot
-            screenshotContent.Add(new LlmContent
-            {
-                Type = "image_url",
-                ImageUrl = new ImageUrl
+                    Type = "text",
+                    Text = $"{label} (OmniParser annotated - elements highlighted):"
+                });
+                screenshotContent.Add(new LlmContent
                 {
-                    Url = $"data:image/png;base64,{currentScreenshot}"
+                    Type = "image_url",
+                    ImageUrl = new ImageUrl
+                    {
+                        Url = $"data:image/png;base64,{ctx.OmniParserResult.AnnotatedImageBase64}"
+                    }
+                });
+
+                // Add bounding box data for this screenshot
+                if (ctx.OmniParserResult.Elements.Count > 0)
+                {
+                    screenshotContent.Add(new LlmContent
+                    {
+                        Type = "text",
+                        Text = $"Detected UI elements for {label.ToLower()}:\n{FormatOmniParserElements(ctx.OmniParserResult.Elements)}"
+                    });
                 }
-            });
+            }
         }
 
         llmMessages.Add(new LlmMessage
@@ -553,6 +511,53 @@ Remember: Precision is critical. A click that is off by even 20-30 pixels may mi
         var base64 = Convert.ToBase64String(screenshot);
         
         return new { success = true, screenshot = base64 };
+    }
+
+    /// <summary>
+    /// Takes a screenshot, runs OmniParser if enabled, adds to history, and returns the context.
+    /// </summary>
+    private async Task<ScreenshotContext> CaptureScreenshotAsync(CancellationToken cancellationToken)
+    {
+        // Take screenshot
+        var screenshot = await _computer.Interface.Screen.Screenshot(cancellationToken);
+        _screenSize = await _computer.Interface.Screen.GetSize(cancellationToken);
+        var screenshotBase64 = Convert.ToBase64String(screenshot);
+
+        _logger?.LogInformation("ComputerAgent: Screenshot taken, size={Width}x{Height}, bytes={Bytes}",
+            _screenSize.Width, _screenSize.Height, screenshot.Length);
+
+        // Run OmniParser if enabled
+        OmniParserResult? omniParserResult = null;
+        if (_omniParser != null)
+        {
+            try
+            {
+                _logger?.LogInformation("ComputerAgent: Running OmniParser analysis...");
+                omniParserResult = await _omniParser.ParseAsync(
+                    screenshotBase64,
+                    _screenSize.Width,
+                    _screenSize.Height,
+                    cancellationToken);
+                _logger?.LogInformation("ComputerAgent: OmniParser detected {Count} UI elements",
+                    omniParserResult.Elements.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "ComputerAgent: OmniParser failed, continuing without element detection");
+            }
+        }
+
+        // Create context and add to history
+        var context = new ScreenshotContext(screenshotBase64, omniParserResult);
+        _screenshotHistory.Add(context);
+
+        // Maintain only N most recent screenshots
+        while (_screenshotHistory.Count > _options.OnlyNMostRecentScreenshots)
+        {
+            _screenshotHistory.RemoveAt(0);
+        }
+
+        return context;
     }
 
     public async ValueTask DisposeAsync()
