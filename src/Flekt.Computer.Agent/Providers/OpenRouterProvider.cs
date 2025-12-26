@@ -594,3 +594,5 @@ internal class OpenRouterUsage
     [JsonPropertyName("total_tokens")]
     public int TotalTokens { get; set; }
 }
+
+

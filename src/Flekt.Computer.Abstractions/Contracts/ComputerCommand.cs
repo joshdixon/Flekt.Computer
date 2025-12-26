@@ -31,6 +31,13 @@ namespace Flekt.Computer.Abstractions.Contracts;
 // Clipboard commands
 [JsonDerivedType(typeof(ClipboardGetCommand), "clipboard.get")]
 [JsonDerivedType(typeof(ClipboardSetCommand), "clipboard.set")]
+[JsonDerivedType(typeof(ClipboardSetFilesCommand), "clipboard.setFiles")]
+[JsonDerivedType(typeof(ClipboardSetFilesFromPathsCommand), "clipboard.setFilesFromPaths")]
+[JsonDerivedType(typeof(ClipboardGetFilesCommand), "clipboard.getFiles")]
+[JsonDerivedType(typeof(ClipboardSetImageFromUrlCommand), "clipboard.setImageFromUrl")]
+[JsonDerivedType(typeof(ClipboardSetImageFromBytesCommand), "clipboard.setImageFromBytes")]
+[JsonDerivedType(typeof(ClipboardGetImageCommand), "clipboard.getImage")]
+[JsonDerivedType(typeof(ClipboardGetContentTypeCommand), "clipboard.getContentType")]
 // Shell commands
 [JsonDerivedType(typeof(ShellRunCommand), "shell.run")]
 // File commands
