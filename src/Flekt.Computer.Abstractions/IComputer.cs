@@ -1,3 +1,5 @@
+using Flekt.Computer.Abstractions.Models;
+
 namespace Flekt.Computer.Abstractions;
 
 /// <summary>
@@ -29,6 +31,12 @@ public interface IComputer : IAsyncDisposable
     /// Event raised when the state changes.
     /// </summary>
     event EventHandler<ComputerState>? StateChanged;
+
+    /// <summary>
+    /// Event raised when input events are received from the session recording.
+    /// Events are streamed in real-time with ~50ms throttling for mouse moves.
+    /// </summary>
+    event EventHandler<InputEventData>? OnInputEvent;
     
     /// <summary>
     /// Starts the computer and establishes the connection.

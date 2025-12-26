@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Flekt.Computer.Abstractions;
 using Flekt.Computer.Abstractions.Contracts;
+using Flekt.Computer.Abstractions.Models;
 using Flekt.Computer.Interface;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
@@ -31,6 +32,11 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
     private TaskCompletionSource? _reconnectedTcs;
     
     public event EventHandler<ComputerState>? StateChanged;
+
+    /// <summary>
+    /// Fires when an input event is received from the session (real-time, 50ms throttled for mouse moves).
+    /// </summary>
+    public event EventHandler<InputEventData>? OnInputEvent;
 
     public CloudProvider(ILogger<CloudProvider>? logger = null)
     {
@@ -512,15 +518,28 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
     {
         _logger?.LogInformation("Disk image captured: {ImageId} for session {SessionId} ({SizeBytes:N0} bytes)",
             imageInfo.ImageId, sessionId, imageInfo.SizeBytes);
-        
+
         if (_pendingRequests.TryRemove(correlationId, out var tcs))
         {
             tcs.TrySetResult(imageInfo);
         }
-        
+
         return Task.CompletedTask;
     }
-    
+
+    public Task InputEventReceived(string sessionId, InputEventData inputEvent)
+    {
+        _logger?.LogTrace("Input event received: {EventType} for session {SessionId}",
+            inputEvent.EventType, sessionId);
+
+        if (sessionId == _sessionId)
+        {
+            OnInputEvent?.Invoke(this, inputEvent);
+        }
+
+        return Task.CompletedTask;
+    }
+
     #endregion
 
     /// <summary>

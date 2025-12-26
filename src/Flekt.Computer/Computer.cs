@@ -1,4 +1,5 @@
 using Flekt.Computer.Abstractions;
+using Flekt.Computer.Abstractions.Models;
 using Flekt.Computer.Interface;
 using Flekt.Computer.Providers;
 using Microsoft.Extensions.Logging;
@@ -53,11 +54,49 @@ public sealed class Computer : IComputer
         };
 
         var computer = new Computer(provider, options);
-        
+
         // Connect and wait for ready
         await computer.Run(cancelToken);
-        
+
         return computer;
+    }
+
+    /// <summary>
+    /// Gets recording information for a completed session.
+    /// </summary>
+    /// <param name="sessionId">The session ID to get recording info for.</param>
+    /// <param name="options">API connection options.</param>
+    /// <param name="cancelToken">Cancellation token.</param>
+    /// <returns>Recording info, or null if recording is not available.</returns>
+    public static async Task<RecordingInfo?> GetRecordingInfoAsync(
+        string sessionId,
+        ComputerOptions options,
+        CancellationToken cancelToken = default)
+    {
+        // TODO: Implement API call to get recording info
+        // This will call GET /api/sessions/{sessionId}/recording
+        throw new NotImplementedException(
+            "GetRecordingInfoAsync is not yet implemented. " +
+            "This requires the session recording feature to be deployed.");
+    }
+
+    /// <summary>
+    /// Gets the recorded input events for a completed session.
+    /// </summary>
+    /// <param name="sessionId">The session ID to get events for.</param>
+    /// <param name="options">API connection options.</param>
+    /// <param name="cancelToken">Cancellation token.</param>
+    /// <returns>List of recorded input events.</returns>
+    public static async Task<IReadOnlyList<InputEventData>> GetRecordingEventsAsync(
+        string sessionId,
+        ComputerOptions options,
+        CancellationToken cancelToken = default)
+    {
+        // TODO: Implement API call to get recording events
+        // This will call GET /api/sessions/{sessionId}/recording/events
+        throw new NotImplementedException(
+            "GetRecordingEventsAsync is not yet implemented. " +
+            "This requires the session recording feature to be deployed.");
     }
 
     // IComputer implementation
@@ -73,6 +112,8 @@ public sealed class Computer : IComputer
         "Tracing/recording functionality is not yet implemented.");
     
     public event EventHandler<ComputerState>? StateChanged;
+
+    public event EventHandler<InputEventData>? OnInputEvent;
 
     public async Task Run(CancellationToken cancelToken = default)
     {

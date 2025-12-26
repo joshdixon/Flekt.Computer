@@ -1,4 +1,5 @@
 using Flekt.Computer.Abstractions.Contracts;
+using Flekt.Computer.Abstractions.Models;
 
 using TypedSignalR.Client;
 
@@ -47,6 +48,12 @@ public interface IClientHubClient
     /// Notifies the client that a disk image was captured successfully.
     /// </summary>
     Task DiskImageCaptured(string sessionId, DiskImageInfo imageInfo, string correlationId);
+
+    /// <summary>
+    /// Real-time input event from session recording (50ms throttled for mouse moves).
+    /// Events are streamed as they occur for live cursor/input visualization.
+    /// </summary>
+    Task InputEventReceived(string sessionId, InputEventData inputEvent);
 }
 
 
