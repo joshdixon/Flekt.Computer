@@ -54,6 +54,12 @@ public interface IClientHubClient
     /// Events are streamed as they occur for live cursor/input visualization.
     /// </summary>
     Task InputEventReceived(string sessionId, InputEventData inputEvent);
+
+    /// <summary>
+    /// Real-time RDP connection event (connect/disconnect).
+    /// Used to detect when users connect/disconnect via RDP.
+    /// </summary>
+    Task RdpConnectionChanged(string sessionId, RdpConnectionEvent connectionEvent);
 }
 
 

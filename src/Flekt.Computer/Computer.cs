@@ -29,6 +29,12 @@ public sealed class Computer : IComputer
         
         // Forward state change events from provider
         _provider.StateChanged += (sender, state) => StateChanged?.Invoke(this, state);
+
+        // Forward input events from provider (for session recording)
+        _provider.OnInputEvent += (sender, inputEvent) => OnInputEvent?.Invoke(this, inputEvent);
+
+        // Forward RDP connection events from provider
+        _provider.OnRdpConnectionChanged += (sender, connectionEvent) => OnRdpConnectionChanged?.Invoke(this, connectionEvent);
     }
 
     /// <summary>
@@ -114,6 +120,8 @@ public sealed class Computer : IComputer
     public event EventHandler<ComputerState>? StateChanged;
 
     public event EventHandler<InputEventData>? OnInputEvent;
+
+    public event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
 
     public async Task Run(CancellationToken cancelToken = default)
     {

@@ -38,6 +38,11 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
     /// </summary>
     public event EventHandler<InputEventData>? OnInputEvent;
 
+    /// <summary>
+    /// Fires when an RDP connection event is received (connect/disconnect).
+    /// </summary>
+    public event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
+
     public CloudProvider(ILogger<CloudProvider>? logger = null)
     {
         _logger = logger;
@@ -529,12 +534,35 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
 
     public Task InputEventReceived(string sessionId, InputEventData inputEvent)
     {
-        _logger?.LogTrace("Input event received: {EventType} for session {SessionId}",
-            inputEvent.EventType, sessionId);
+        _logger?.LogInformation("SDK received InputEvent: {EventType} at ({X}, {Y}) for session {SessionId} (my session: {MySessionId})",
+            inputEvent.EventType, inputEvent.X, inputEvent.Y, sessionId, _sessionId);
 
         if (sessionId == _sessionId)
         {
+            _logger?.LogInformation("Raising OnInputEvent for {EventType}", inputEvent.EventType);
             OnInputEvent?.Invoke(this, inputEvent);
+        }
+        else
+        {
+            _logger?.LogWarning("Session ID mismatch - ignoring event");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task RdpConnectionChanged(string sessionId, RdpConnectionEvent connectionEvent)
+    {
+        _logger?.LogInformation("SDK received RDP {EventType} for session {SessionId} (my session: {MySessionId}), ClientIP: {ClientIp}",
+            connectionEvent.Type, sessionId, _sessionId, connectionEvent.ClientIpAddress);
+
+        if (sessionId == _sessionId)
+        {
+            _logger?.LogInformation("Raising OnRdpConnectionChanged for {EventType}", connectionEvent.Type);
+            OnRdpConnectionChanged?.Invoke(this, connectionEvent);
+        }
+        else
+        {
+            _logger?.LogWarning("Session ID mismatch - ignoring RDP connection event");
         }
 
         return Task.CompletedTask;

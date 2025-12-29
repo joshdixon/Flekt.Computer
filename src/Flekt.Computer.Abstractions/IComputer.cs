@@ -37,6 +37,12 @@ public interface IComputer : IAsyncDisposable
     /// Events are streamed in real-time with ~50ms throttling for mouse moves.
     /// </summary>
     event EventHandler<InputEventData>? OnInputEvent;
+
+    /// <summary>
+    /// Event raised when RDP connection state changes (connect/disconnect).
+    /// Can be used to detect when a user connects/disconnects via RDP.
+    /// </summary>
+    event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
     
     /// <summary>
     /// Starts the computer and establishes the connection.

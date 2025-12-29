@@ -1,4 +1,5 @@
 using Flekt.Computer.Abstractions;
+using Flekt.Computer.Abstractions.Models;
 
 namespace Flekt.Computer.Providers;
 
@@ -23,7 +24,19 @@ public interface IComputerProvider : IAsyncDisposable
     /// Event raised when the computer state changes.
     /// </summary>
     event EventHandler<ComputerState>? StateChanged;
-    
+
+    /// <summary>
+    /// Event raised when an input event is received from the remote computer.
+    /// Used for real-time session recording/streaming.
+    /// </summary>
+    event EventHandler<InputEventData>? OnInputEvent;
+
+    /// <summary>
+    /// Event raised when an RDP connection event is received (connect/disconnect).
+    /// Used to detect when users connect/disconnect via RDP.
+    /// </summary>
+    event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
+
     /// <summary>
     /// Connects to the remote computer and establishes a session.
     /// Returns when the connection is established (not necessarily when the computer is Ready).
