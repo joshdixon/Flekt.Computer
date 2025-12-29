@@ -54,6 +54,13 @@ public interface IComputerProvider : IAsyncDisposable
     Task<RdpAccessInfo> GetRdpAccessAsync(TimeSpan? duration = null, CancellationToken cancelToken = default);
 
     /// <summary>
+    /// Gets the WebRTC URL for browser-based screen streaming.
+    /// Returns null if the stream is not yet ready.
+    /// </summary>
+    /// <param name="cancelToken">Cancellation token.</param>
+    Task<string?> GetWebRtcUrlAsync(CancellationToken cancelToken = default);
+
+    /// <summary>
     /// Captures the current VM disk state as a new reusable image.
     /// ⚠️ WARNING: This operation will STOP the VM and END the session.
     /// </summary>

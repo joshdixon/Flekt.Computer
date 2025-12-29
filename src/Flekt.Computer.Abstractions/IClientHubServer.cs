@@ -1,4 +1,5 @@
 using Flekt.Computer.Abstractions.Contracts;
+using Flekt.Computer.Abstractions.Models;
 
 using TypedSignalR.Client;
 
@@ -62,6 +63,11 @@ public interface IClientHubServer
     /// Ends the session and cleans up resources.
     /// </summary>
     Task EndSession(string sessionId);
+
+    /// <summary>
+    /// Gets information about a session including WebRTC URL.
+    /// </summary>
+    Task<SessionInfo> GetSessionInfo(string sessionId);
 }
 
 

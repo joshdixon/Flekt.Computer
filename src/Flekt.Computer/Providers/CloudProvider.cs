@@ -140,6 +140,30 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
         return rdpInfo;
     }
 
+    public async Task<string?> GetWebRtcUrlAsync(CancellationToken cancelToken = default)
+    {
+        if (_hubProxy == null)
+        {
+            throw new InvalidOperationException("Not connected. Call ConnectAsync first.");
+        }
+
+        if (_sessionId == null)
+        {
+            throw new InvalidOperationException("No session ID available.");
+        }
+
+        _logger?.LogDebug("Getting WebRTC URL for session {SessionId}", _sessionId);
+
+        var sessionInfo = await InvokeWithRetryAsync(
+            () => _hubProxy.GetSessionInfo(_sessionId),
+            nameof(IClientHubServer.GetSessionInfo),
+            cancelToken);
+
+        _logger?.LogDebug("WebRTC URL for session {SessionId}: {WebRtcUrl}", _sessionId, sessionInfo.WebRtcUrl);
+
+        return sessionInfo.WebRtcUrl;
+    }
+
     #region ICommandSender Implementation
 
     public async Task<T?> SendCommandAsync<T>(ComputerCommand command, CancellationToken cancelToken = default)

@@ -152,6 +152,11 @@ public sealed class Computer : IComputer
         return _provider.GetRdpAccessAsync(duration, cancelToken);
     }
 
+    public Task<string?> GetWebRtcUrl(CancellationToken cancelToken = default)
+    {
+        return _provider.GetWebRtcUrlAsync(cancelToken);
+    }
+
     public Task<string> CreateCheckpoint(string? name = null, CancellationToken cancelToken = default)
     {
         throw new NotImplementedException("Checkpoint creation is not yet implemented.");

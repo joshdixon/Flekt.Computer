@@ -76,8 +76,6 @@ await foreach (var result in agent.RunAsync(messages))
 | Provider | Model String Example | Vision | Tools | Streaming |
 |----------|---------------------|--------|-------|-----------|
 | OpenRouter | `anthropic/claude-3.5-sonnet` | ✅ | ✅ | ✅ |
-| OpenRouter | `openai/gpt-4o` | ✅ | ✅ | ✅ |
-| OpenRouter | `google/gemini-pro-vision` | ✅ | ✅ | ✅ |
 
 ### Advanced Configuration
 
@@ -87,8 +85,8 @@ var options = new ComputerAgentOptions
     // Take screenshot after each action (default: true)
     ScreenshotAfterAction = true,
     
-    // Delay before screenshot to let UI settle
-    ScreenshotDelay = TimeSpan.FromMilliseconds(500),
+    // Delay before screenshot to let UI settle (default: 1000ms)
+    ScreenshotDelay = TimeSpan.FromMilliseconds(1000),
     
     // Maximum iterations before stopping
     MaxIterations = 100,
@@ -269,4 +267,12 @@ await foreach (var result in agent.RunAsync(messages))
 ## License
 
 MIT
+
+
+
+
+
+
+
+
 

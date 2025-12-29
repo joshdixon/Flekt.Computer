@@ -56,6 +56,13 @@ public interface IComputer : IAsyncDisposable
     /// <param name="duration">Optional duration for the credentials.</param>
     /// <param name="cancelToken">Cancellation token.</param>
     Task<RdpAccessInfo> GetRdpAccess(TimeSpan? duration = null, CancellationToken cancelToken = default);
+
+    /// <summary>
+    /// Gets the WebRTC URL for browser-based screen streaming.
+    /// Returns null if the stream is not yet ready.
+    /// </summary>
+    /// <param name="cancelToken">Cancellation token.</param>
+    Task<string?> GetWebRtcUrl(CancellationToken cancelToken = default);
     
     /// <summary>
     /// Creates a checkpoint/snapshot of the current VM state.
