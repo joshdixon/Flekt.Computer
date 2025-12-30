@@ -26,7 +26,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
     private IClientHubServer? _hubProxy;
     private IDisposable? _receiverSubscription;
     private string? _sessionId;
-    private ComputerState _state = ComputerState.Created;
+    private ComputerState _state = ComputerState.Queued;
     private readonly TaskCompletionSource _sessionReadyTcs = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<object?>> _pendingRequests = new();
     private TaskCompletionSource? _reconnectedTcs;
@@ -65,8 +65,8 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
         }
 
         _logger?.LogInformation("Connecting to Computer API at {ApiBaseUrl}", options.ApiBaseUrl);
-        
-        UpdateState(ComputerState.Connecting);
+
+        // State starts as Queued, will be updated via SessionStateChanged callbacks
 
         // Build SignalR connection
         _connection = new HubConnectionBuilder()
@@ -92,8 +92,8 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
         await _connection.StartAsync(cancelToken);
         _logger?.LogInformation("SignalR connection established");
 
-        // Create session
-        UpdateState(ComputerState.Provisioning);
+        // Create session - state will transition via SessionStateChanged callbacks
+        // Queued -> Provisioning -> Booting -> Starting -> Ready
         
         var createRequest = new CreateSessionRequest
         {

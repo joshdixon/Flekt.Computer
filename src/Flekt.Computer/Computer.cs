@@ -61,8 +61,12 @@ public sealed class Computer : IComputer
 
         var computer = new Computer(provider, options);
 
-        // Connect and wait for ready
-        await computer.Run(cancelToken);
+        // If WaitForReady is true (default), connect and wait for ready
+        // If false, return immediately so caller can register callbacks before calling Run()
+        if (options.WaitForReady)
+        {
+            await computer.Run(cancelToken);
+        }
 
         return computer;
     }

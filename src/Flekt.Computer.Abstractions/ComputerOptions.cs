@@ -73,6 +73,13 @@ public sealed class ComputerOptions
     /// Tags/metadata to associate with the computer.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
+
+    /// <summary>
+    /// If true (default), CreateAsync waits for the computer to reach Ready state.
+    /// If false, CreateAsync returns immediately after creating the Computer instance,
+    /// and the caller must call Run() to start provisioning.
+    /// </summary>
+    public bool WaitForReady { get; init; } = true;
 }
 
 /// <summary>

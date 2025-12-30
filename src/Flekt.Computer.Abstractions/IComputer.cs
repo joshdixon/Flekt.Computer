@@ -109,40 +109,46 @@ public interface IComputer : IAsyncDisposable
 public enum ComputerState
 {
     /// <summary>
-    /// Initial state, not yet started.
+    /// Initial state - session work item created but not yet sent to a host.
     /// </summary>
-    Created,
-    
+    Queued,
+
     /// <summary>
-    /// Connecting to the provider/agent.
-    /// </summary>
-    Connecting,
-    
-    /// <summary>
-    /// Waiting for the VM to be provisioned.
+    /// Work item sent to host, VM is being created.
     /// </summary>
     Provisioning,
-    
+
+    /// <summary>
+    /// VM created, Hyper-V and Windows are booting up.
+    /// </summary>
+    Booting,
+
+    /// <summary>
+    /// Windows booted, agent is being deployed and started.
+    /// </summary>
+    Starting,
+
     /// <summary>
     /// The computer is ready and the interface is usable.
+    /// Agent is fully connected and video streaming.
     /// </summary>
     Ready,
-    
+
     /// <summary>
     /// The connection was lost and is being re-established.
     /// </summary>
     Reconnecting,
-    
+
     /// <summary>
     /// The computer is being shut down.
     /// </summary>
     Stopping,
-    
+
     /// <summary>
     /// The computer has been stopped and disposed.
     /// </summary>
     Stopped,
-    
+
     /// <summary>
     /// An error occurred.
     /// </summary>
