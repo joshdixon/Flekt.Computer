@@ -319,6 +319,23 @@ public sealed class GeminiProvider : ILlmProvider
         },
         new FunctionDeclaration
         {
+            Name = "mouse_drag",
+            Description = "Drag from start coordinates to end coordinates. Use this for moving windows (drag title bar), selecting text, resizing, or any drag-and-drop operation.",
+            Parameters = new Schema
+            {
+                Type = Google.GenAI.Types.Type.OBJECT,
+                Properties = new Dictionary<string, Schema>
+                {
+                    ["start_x"] = new Schema { Type = Google.GenAI.Types.Type.INTEGER, Description = "Starting X coordinate in pixels" },
+                    ["start_y"] = new Schema { Type = Google.GenAI.Types.Type.INTEGER, Description = "Starting Y coordinate in pixels" },
+                    ["end_x"] = new Schema { Type = Google.GenAI.Types.Type.INTEGER, Description = "Ending X coordinate in pixels" },
+                    ["end_y"] = new Schema { Type = Google.GenAI.Types.Type.INTEGER, Description = "Ending Y coordinate in pixels" }
+                },
+                Required = new List<string> { "start_x", "start_y", "end_x", "end_y" }
+            }
+        },
+        new FunctionDeclaration
+        {
             Name = "keyboard_type",
             Description = "Type text using the keyboard.",
             Parameters = new Schema

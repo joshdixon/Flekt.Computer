@@ -101,6 +101,9 @@ public sealed class ComputerAgent : IAsyncDisposable
         {
             AddSystemPrompt();
 
+            // Add reference images if provided (useful for recovery/comparison scenarios)
+            await AddReferenceImagesAsync(cancellationToken);
+
             foreach (AgentMessage msg in initialMessages)
             {
                 _llmMessageHistory.Add(ConvertToLlmMessage(msg));
@@ -299,6 +302,7 @@ public sealed class ComputerAgent : IAsyncDisposable
 ## Available Tools
 - mouse_move(x, y) - Move mouse to coordinates
 - mouse_click(button, x?, y?) - Click at coordinates
+- mouse_drag(start_x, start_y, end_x, end_y) - Drag from start to end coordinates (for moving windows, selecting text, etc.)
 - keyboard_type(text) - Type text into focused field
 - keyboard_press(key, modifiers?) - Press keys (Enter, Tab, etc.)
 - screenshot() - Take a screenshot to see results
@@ -338,6 +342,108 @@ REMEMBER: Respond with TOOL CALLS, not text descriptions. Never output element l
                     Text = systemPromptText
                 }
             }
+        });
+    }
+
+    /// <summary>
+    /// Adds reference images to the conversation history if provided.
+    /// Reference images are processed through OmniParser if enabled.
+    /// </summary>
+    private async Task AddReferenceImagesAsync(CancellationToken cancellationToken)
+    {
+        if (_options.ReferenceImages == null || _options.ReferenceImages.Count == 0)
+        {
+            return;
+        }
+
+        _logger?.LogInformation("ComputerAgent: Adding {Count} reference images to context", _options.ReferenceImages.Count);
+
+        var referenceContent = new List<LlmContent>
+        {
+            new()
+            {
+                Type = "text",
+                Text = "## Reference Images\nThe following reference images show the expected/target state for this task:\n"
+            }
+        };
+
+        foreach (ReferenceImage refImage in _options.ReferenceImages)
+        {
+            string base64 = Convert.ToBase64String(refImage.ImageBytes);
+
+            // Add the label
+            referenceContent.Add(new LlmContent
+            {
+                Type = "text",
+                Text = $"\n[{refImage.Label}]"
+            });
+
+            // Add the original image
+            referenceContent.Add(new LlmContent
+            {
+                Type = "image_url",
+                ImageUrl = new ImageUrl { Url = $"data:image/png;base64,{base64}" }
+            });
+
+            // Run OmniParser on reference images if enabled
+            if (_omniParser != null)
+            {
+                try
+                {
+                    _logger?.LogInformation("ComputerAgent: Running OmniParser on reference image '{Label}'", refImage.Label);
+
+                    // We need screen size for OmniParser, but reference images may have different dimensions
+                    // For now, we'll pass 0,0 and let OmniParser handle it
+                    OmniParserResult omniResult = await _omniParser.ParseAsync(
+                        base64,
+                        0, // Width will be detected from image
+                        0, // Height will be detected from image
+                        _options.OmniParserBoxThreshold,
+                        _options.OmniParserIouThreshold,
+                        cancellationToken);
+
+                    // Add annotated image
+                    referenceContent.Add(new LlmContent
+                    {
+                        Type = "text",
+                        Text = $"[{refImage.Label} - OmniParser annotated]"
+                    });
+                    referenceContent.Add(new LlmContent
+                    {
+                        Type = "image_url",
+                        ImageUrl = new ImageUrl { Url = $"data:image/png;base64,{omniResult.AnnotatedImageBase64}" }
+                    });
+
+                    // Add element list
+                    if (omniResult.Elements.Count > 0)
+                    {
+                        referenceContent.Add(new LlmContent
+                        {
+                            Type = "text",
+                            Text = $"Elements in {refImage.Label}:\n{FormatOmniParserElements(omniResult.Elements)}"
+                        });
+                    }
+
+                    _logger?.LogInformation("ComputerAgent: OmniParser detected {Count} elements in '{Label}'",
+                        omniResult.Elements.Count, refImage.Label);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "ComputerAgent: Failed to run OmniParser on reference image '{Label}'", refImage.Label);
+                }
+            }
+        }
+
+        referenceContent.Add(new LlmContent
+        {
+            Type = "text",
+            Text = "\nUse these reference images to understand what the expected state looks like. Compare the CURRENT screenshot to these references when deciding your actions."
+        });
+
+        _llmMessageHistory.Add(new LlmMessage
+        {
+            Role = "user",
+            Content = referenceContent
         });
     }
 
@@ -486,6 +592,7 @@ REMEMBER: Respond with TOOL CALLS, not text descriptions. Never output element l
             {
                 "mouse_move" => await ExecuteMouseMove(toolCall.Arguments, cancellationToken),
                 "mouse_click" => await ExecuteMouseClick(toolCall.Arguments, cancellationToken),
+                "mouse_drag" => await ExecuteMouseDrag(toolCall.Arguments, cancellationToken),
                 "keyboard_type" => await ExecuteKeyboardType(toolCall.Arguments, cancellationToken),
                 "keyboard_press" => await ExecuteKeyboardPress(toolCall.Arguments, cancellationToken),
                 // "screenshot" => await ExecuteScreenshot(cancellationToken),
@@ -569,6 +676,32 @@ REMEMBER: Respond with TOOL CALLS, not text descriptions. Never output element l
         {
             success = true,
             button = button.ToString()
+        };
+    }
+
+    private async Task<object> ExecuteMouseDrag(string argsJson, CancellationToken ct)
+    {
+        var args = JsonSerializer.Deserialize<MouseDragArgs>(argsJson, JsonOptions);
+        if (args == null)
+        {
+            throw new ArgumentException("Invalid mouse_drag arguments");
+        }
+
+        // Move to start position, press down, move to end, release
+        await _computer.Interface.Mouse.Move(args.StartX, args.StartY, ct);
+        await _computer.Interface.Mouse.Down(args.StartX, args.StartY, MouseButton.Left, ct);
+        await Task.Delay(50, ct); // Small delay for the press to register
+        await _computer.Interface.Mouse.Move(args.EndX, args.EndY, ct);
+        await Task.Delay(50, ct); // Small delay before release
+        await _computer.Interface.Mouse.Up(args.EndX, args.EndY, MouseButton.Left, ct);
+
+        return new
+        {
+            success = true,
+            start_x = args.StartX,
+            start_y = args.StartY,
+            end_x = args.EndX,
+            end_y = args.EndY
         };
     }
 
@@ -699,6 +832,21 @@ REMEMBER: Respond with TOOL CALLS, not text descriptions. Never output element l
         public string? Button { get; set; }
         public int? X { get; set; }
         public int? Y { get; set; }
+    }
+
+    private class MouseDragArgs
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("start_x")]
+        public int StartX { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("start_y")]
+        public int StartY { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("end_x")]
+        public int EndX { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("end_y")]
+        public int EndY { get; set; }
     }
 
     private class KeyboardTypeArgs

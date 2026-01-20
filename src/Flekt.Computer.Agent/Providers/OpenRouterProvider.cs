@@ -374,6 +374,44 @@ public sealed class OpenRouterProvider : ILlmProvider, IAsyncDisposable
             type = "function",
             function = new
             {
+                name = "mouse_drag",
+                description
+                    = "Drag from start coordinates to end coordinates. Use this for moving windows (drag the title bar), selecting text, resizing elements, or any drag-and-drop operation. Coordinates are absolute screen positions where (0,0) is the top-left corner.",
+                parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        start_x = new
+                        {
+                            type = "integer",
+                            description = "Starting X coordinate in pixels (where to press the mouse button)"
+                        },
+                        start_y = new
+                        {
+                            type = "integer",
+                            description = "Starting Y coordinate in pixels (where to press the mouse button)"
+                        },
+                        end_x = new
+                        {
+                            type = "integer",
+                            description = "Ending X coordinate in pixels (where to release the mouse button)"
+                        },
+                        end_y = new
+                        {
+                            type = "integer",
+                            description = "Ending Y coordinate in pixels (where to release the mouse button)"
+                        }
+                    },
+                    required = new[] { "start_x", "start_y", "end_x", "end_y" }
+                }
+            }
+        },
+        new
+        {
+            type = "function",
+            function = new
+            {
                 name = "keyboard_type",
                 description
                     = "Type text using the keyboard. Use this for entering text into text fields, search boxes, or any text input. Make sure the target text field is focused (clicked) before typing.",
@@ -594,6 +632,20 @@ internal class OpenRouterUsage
     [JsonPropertyName("total_tokens")]
     public int TotalTokens { get; set; }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -133,7 +133,24 @@ public class ComputerAgentOptions
     /// Required if EnableOmniParser is true.
     /// </summary>
     public string? OmniParserBaseUrl { get; init; }
+
+    /// <summary>
+    /// Optional reference images to include in the initial prompt.
+    /// Useful for recovery scenarios where the agent needs to match a target state.
+    /// If EnableOmniParser is true, these will be processed through OmniParser automatically.
+    /// </summary>
+    public List<ReferenceImage>? ReferenceImages { get; init; }
 }
+
+/// <summary>
+/// A reference image to include in the agent's initial context.
+/// </summary>
+public record ReferenceImage(
+    /// <summary>Label for the image (e.g., "Expected state", "Baseline screenshot").</summary>
+    string Label,
+    /// <summary>Raw image bytes (PNG or JPEG).</summary>
+    byte[] ImageBytes
+);
 
 
 
