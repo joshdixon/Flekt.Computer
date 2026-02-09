@@ -42,6 +42,8 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
     /// Fires when an RDP connection event is received (connect/disconnect).
     /// </summary>
     public event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
+    public event EventHandler<string>? OnVmRestarting;
+    public event EventHandler<string>? OnAgentReconnected;
 
     public CloudProvider(ILogger<CloudProvider>? logger = null)
     {
@@ -587,6 +589,32 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
         else
         {
             _logger?.LogWarning("Session ID mismatch - ignoring RDP connection event");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task VmRestarting(string sessionId)
+    {
+        _logger?.LogInformation("SDK received VmRestarting for session {SessionId} (my session: {MySessionId})",
+            sessionId, _sessionId);
+
+        if (sessionId == _sessionId)
+        {
+            OnVmRestarting?.Invoke(this, sessionId);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task AgentReconnected(string sessionId)
+    {
+        _logger?.LogInformation("SDK received AgentReconnected for session {SessionId} (my session: {MySessionId})",
+            sessionId, _sessionId);
+
+        if (sessionId == _sessionId)
+        {
+            OnAgentReconnected?.Invoke(this, sessionId);
         }
 
         return Task.CompletedTask;

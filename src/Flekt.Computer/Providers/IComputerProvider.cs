@@ -38,6 +38,16 @@ public interface IComputerProvider : IAsyncDisposable
     event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
 
     /// <summary>
+    /// Event raised when the VM is restarting (agent detected Windows shutdown).
+    /// </summary>
+    event EventHandler<string>? OnVmRestarting;
+
+    /// <summary>
+    /// Event raised when the agent reconnects after a VM restart.
+    /// </summary>
+    event EventHandler<string>? OnAgentReconnected;
+
+    /// <summary>
     /// Connects to the remote computer and establishes a session.
     /// Returns when the connection is established (not necessarily when the computer is Ready).
     /// </summary>

@@ -35,6 +35,10 @@ public sealed class Computer : IComputer
 
         // Forward RDP connection events from provider
         _provider.OnRdpConnectionChanged += (sender, connectionEvent) => OnRdpConnectionChanged?.Invoke(this, connectionEvent);
+
+        // Forward VM restart/reconnect events from provider
+        _provider.OnVmRestarting += (sender, sessionId) => OnVmRestarting?.Invoke(this, sessionId);
+        _provider.OnAgentReconnected += (sender, sessionId) => OnAgentReconnected?.Invoke(this, sessionId);
     }
 
     /// <summary>
@@ -88,6 +92,10 @@ public sealed class Computer : IComputer
     public event EventHandler<InputEventData>? OnInputEvent;
 
     public event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
+
+    public event EventHandler<string>? OnVmRestarting;
+
+    public event EventHandler<string>? OnAgentReconnected;
 
     public async Task Run(CancellationToken cancelToken = default)
     {

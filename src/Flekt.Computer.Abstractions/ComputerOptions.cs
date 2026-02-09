@@ -29,7 +29,7 @@ public sealed class ComputerOptions
     /// <summary>
     /// The ID of a disk image to create the VM from.
     /// Use this to create VMs from images captured with SaveAsDiskImage().
-    /// If null, uses the default base image (windows-server-2022-base).
+    /// If null, uses the default base image (windows-server-2025-base).
     /// </summary>
     public string? ImageId { get; init; }
     

@@ -43,7 +43,17 @@ public enum InputEventType
     /// <summary>
     /// An image was placed on the clipboard.
     /// </summary>
-    ClipboardImage
+    ClipboardImage,
+
+    /// <summary>
+    /// Agent started (initial boot or after restart). First event in the stream.
+    /// </summary>
+    AgentStarted,
+
+    /// <summary>
+    /// VM is shutting down or restarting.
+    /// </summary>
+    VmShutdown
 }
 
 /// <summary>

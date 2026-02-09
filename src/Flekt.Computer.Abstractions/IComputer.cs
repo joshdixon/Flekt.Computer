@@ -43,6 +43,18 @@ public interface IComputer : IAsyncDisposable
     /// Can be used to detect when a user connects/disconnects via RDP.
     /// </summary>
     event EventHandler<RdpConnectionEvent>? OnRdpConnectionChanged;
+
+    /// <summary>
+    /// Event raised when the VM is restarting (agent detected Windows shutdown).
+    /// Recording should be paused, not stopped.
+    /// </summary>
+    event EventHandler<string>? OnVmRestarting;
+
+    /// <summary>
+    /// Event raised when the agent reconnects after a VM restart.
+    /// Recording should be resumed.
+    /// </summary>
+    event EventHandler<string>? OnAgentReconnected;
     
     /// <summary>
     /// Starts the computer and establishes the connection.

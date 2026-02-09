@@ -60,6 +60,18 @@ public interface IClientHubClient
     /// Used to detect when users connect/disconnect via RDP.
     /// </summary>
     Task RdpConnectionChanged(string sessionId, RdpConnectionEvent connectionEvent);
+
+    /// <summary>
+    /// Notifies the client that a VM is restarting (agent detected Windows shutdown).
+    /// The client should pause recording instead of stopping it.
+    /// </summary>
+    Task VmRestarting(string sessionId);
+
+    /// <summary>
+    /// Notifies the client that an agent has reconnected after a VM restart.
+    /// The client should resume the paused recording.
+    /// </summary>
+    Task AgentReconnected(string sessionId);
 }
 
 
