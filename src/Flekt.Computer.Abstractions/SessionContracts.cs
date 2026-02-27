@@ -33,6 +33,12 @@ public sealed record CreateSessionRequest
     public string? ImageId { get; init; }
 
     /// <summary>
+    /// Optional per-session maximum duration in minutes.
+    /// If set, the session will be automatically stopped after this many minutes.
+    /// </summary>
+    public int? MaxDurationMinutes { get; init; }
+
+    /// <summary>
     /// Optional tags/metadata.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
