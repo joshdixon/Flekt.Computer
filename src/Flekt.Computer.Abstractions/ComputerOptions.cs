@@ -75,6 +75,12 @@ public sealed class ComputerOptions
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
+    /// Maximum session duration in minutes. When exceeded, the session is automatically stopped.
+    /// If null, the session runs until explicitly stopped.
+    /// </summary>
+    public int? MaxDurationMinutes { get; init; }
+
+    /// <summary>
     /// If true (default), CreateAsync waits for the computer to reach Ready state.
     /// If false, CreateAsync returns immediately after creating the Computer instance,
     /// and the caller must call Run() to start provisioning.

@@ -104,6 +104,7 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
             MemoryGb = options.MemoryGb,
             StorageGb = options.StorageGb,
             ImageId = options.ImageId,
+            MaxDurationMinutes = options.MaxDurationMinutes,
             Tags = options.Tags
         };
 
