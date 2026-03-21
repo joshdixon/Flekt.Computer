@@ -41,7 +41,7 @@ public sealed class GeminiProvider : ILlmProvider
 
         _logger?.LogDebug("GeminiProvider: Sending {Count} messages to {Model}", contents.Count, _model);
 
-        var pendingFunctionCalls = new List<FunctionCall>();
+        var pendingFunctionCalls = new List<(FunctionCall Call, byte[]? ThoughtSignature)>();
         var accumulatedText = new System.Text.StringBuilder();
         bool hasYieldedFinal = false;
 
@@ -74,8 +74,9 @@ public sealed class GeminiProvider : ILlmProvider
                 // Handle function calls
                 else if (part.FunctionCall != null)
                 {
-                    pendingFunctionCalls.Add(part.FunctionCall);
-                    _logger?.LogDebug("GeminiProvider: Received function call {Name}", part.FunctionCall.Name);
+                    pendingFunctionCalls.Add((part.FunctionCall, part.ThoughtSignature));
+                    _logger?.LogDebug("GeminiProvider: Received function call {Name} (thoughtSig={HasSig})",
+                        part.FunctionCall.Name, part.ThoughtSignature != null);
                 }
                 // Handle text content
                 else if (!string.IsNullOrEmpty(part.Text))
@@ -91,8 +92,8 @@ public sealed class GeminiProvider : ILlmProvider
                 _logger?.LogInformation("GeminiProvider: Finished with reason {Reason}, FunctionCalls={Count}",
                     candidate.FinishReason, pendingFunctionCalls.Count);
 
-                // Yield function calls
-                foreach (FunctionCall fc in pendingFunctionCalls)
+                // Yield function calls (preserve thought signatures for Gemini 3+)
+                foreach ((FunctionCall fc, byte[]? sig) in pendingFunctionCalls)
                 {
                     string args = fc.Args != null
                         ? JsonSerializer.Serialize(fc.Args)
@@ -105,7 +106,8 @@ public sealed class GeminiProvider : ILlmProvider
                         {
                             Id = fc.Id ?? Guid.NewGuid().ToString(),
                             Name = fc.Name ?? "unknown",
-                            Arguments = args
+                            Arguments = args,
+                            ThoughtSignature = sig != null ? Convert.ToBase64String(sig) : null
                         }
                     };
                 }
@@ -123,7 +125,7 @@ public sealed class GeminiProvider : ILlmProvider
         // If we never got a finish reason, yield what we have
         if (!hasYieldedFinal)
         {
-            foreach (FunctionCall fc in pendingFunctionCalls)
+            foreach ((FunctionCall fc, byte[]? sig) in pendingFunctionCalls)
             {
                 string args = fc.Args != null
                     ? JsonSerializer.Serialize(fc.Args)
@@ -136,7 +138,8 @@ public sealed class GeminiProvider : ILlmProvider
                     {
                         Id = fc.Id ?? Guid.NewGuid().ToString(),
                         Name = fc.Name ?? "unknown",
-                        Arguments = args
+                        Arguments = args,
+                        ThoughtSignature = sig != null ? Convert.ToBase64String(sig) : null
                     }
                 };
             }
@@ -211,7 +214,10 @@ public sealed class GeminiProvider : ILlmProvider
                             Id = tc.Id,
                             Name = tc.Name,
                             Args = args
-                        }
+                        },
+                        ThoughtSignature = tc.ThoughtSignature != null
+                            ? Convert.FromBase64String(tc.ThoughtSignature)
+                            : null
                     });
                 }
             }
