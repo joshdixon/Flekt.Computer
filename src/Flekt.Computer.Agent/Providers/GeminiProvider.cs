@@ -41,6 +41,18 @@ public sealed class GeminiProvider : ILlmProvider
 
         _logger?.LogDebug("GeminiProvider: Sending {Count} messages to {Model}", contents.Count, _model);
 
+        // Log message details for debugging
+        foreach (var c in contents)
+        {
+            var partTypes = string.Join(", ", c.Parts?.Select(p =>
+                p.FunctionCall != null ? $"FunctionCall({p.FunctionCall.Name}, sig={p.ThoughtSignature != null})"
+                : p.FunctionResponse != null ? $"FunctionResponse({p.FunctionResponse.Name})"
+                : p.InlineData != null ? "Image"
+                : p.Thought == true ? "Thought"
+                : "Text") ?? []);
+            _logger?.LogDebug("GeminiProvider:   [{Role}] {Parts}", c.Role, partTypes);
+        }
+
         var pendingFunctionCalls = new List<(FunctionCall Call, byte[]? ThoughtSignature)>();
         var accumulatedText = new System.Text.StringBuilder();
         bool hasYieldedFinal = false;
@@ -174,18 +186,17 @@ public sealed class GeminiProvider : ILlmProvider
             // Handle tool result messages
             if (msg.Role == "tool" && !string.IsNullOrEmpty(msg.ToolCallId))
             {
-                // Find the function name from the content or use a default
+                // Look up the function name from the preceding assistant message's tool calls
                 string? functionName = null;
-
-                // Try to parse content as JSON to get function info
-                if (msg.Content.Count > 0 && msg.Content[0].Type == "text")
+                foreach (var prev in messages)
                 {
-                    try
+                    if (prev.ToolCalls == null) continue;
+                    var match = prev.ToolCalls.FirstOrDefault(tc => tc.Id == msg.ToolCallId);
+                    if (match != null)
                     {
-                        var resultJson = JsonSerializer.Deserialize<Dictionary<string, object>>(msg.Content[0].Text ?? "{}");
-                        functionName = msg.ToolCallId; // Use tool call ID as function name reference
+                        functionName = match.Name;
+                        break;
                     }
-                    catch { }
                 }
 
                 parts.Add(new Part
