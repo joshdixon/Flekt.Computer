@@ -18,7 +18,7 @@
 
     <ItemGroup>
         <!-- Reference the Computer SDK -->
-        <PackageReference Include="Google.GenAI" Version="0.9.0" />
+        <PackageReference Include="Google.GenAI" Version="0.12.0" />
         <ProjectReference Include="..\Flekt.Computer\Flekt.Computer.csproj" />
         
         <!-- HTTP client for LLM APIs -->
