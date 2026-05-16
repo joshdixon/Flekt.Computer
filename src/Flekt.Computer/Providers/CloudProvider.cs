@@ -76,7 +76,15 @@ internal sealed class CloudProvider : IComputerProvider, IClientHubClient, IComm
             {
                 httpOptions.Headers.Add("X-API-Key", options.ApiKey);
             })
-            .WithAutomaticReconnect(new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5) })
+            .WithAutomaticReconnect(new[]
+            {
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(60),
+            })
             .Build();
 
         // Create type-safe proxy for calling hub methods (Client → Server)
