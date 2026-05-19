@@ -40,4 +40,11 @@ public interface IComputerInterface
     /// Window management operations.
     /// </summary>
     IWindows Windows { get; }
+
+    /// <summary>
+    /// Batched-input replay. Sends a sequence of mouse/keyboard/clipboard
+    /// inputs with per-item delays in a single round-trip — use this instead
+    /// of N awaited Mouse/Keyboard calls when replaying recorded input.
+    /// </summary>
+    IInputBatch InputBatch { get; }
 }

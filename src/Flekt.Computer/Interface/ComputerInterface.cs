@@ -16,6 +16,7 @@ internal sealed class ComputerInterface : IComputerInterface
         Files = new CloudFiles(commandSender);
         Shell = new CloudShell(commandSender);
         Windows = new CloudWindows(commandSender);
+        InputBatch = new CloudInputBatch(commandSender);
     }
 
     public IMouse Mouse { get; }
@@ -25,6 +26,7 @@ internal sealed class ComputerInterface : IComputerInterface
     public IFiles Files { get; }
     public IShell Shell { get; }
     public IWindows Windows { get; }
+    public IInputBatch InputBatch { get; }
 }
 
 

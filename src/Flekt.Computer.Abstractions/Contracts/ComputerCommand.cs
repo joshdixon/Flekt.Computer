@@ -25,6 +25,9 @@ namespace Flekt.Computer.Abstractions.Contracts;
 [JsonDerivedType(typeof(KeyboardHotkeyCommand), "keyboard.hotkey")]
 [JsonDerivedType(typeof(KeyboardDownCommand), "keyboard.down")]
 [JsonDerivedType(typeof(KeyboardUpCommand), "keyboard.up")]
+// Batched input — replays a list of keyboard/mouse/clipboard inputs with
+// per-item delays in a single round-trip
+[JsonDerivedType(typeof(InputBatchCommand), "input.batch")]
 // Screen commands
 [JsonDerivedType(typeof(ScreenScreenshotCommand), "screen.screenshot")]
 [JsonDerivedType(typeof(ScreenGetSizeCommand), "screen.getSize")]
