@@ -53,7 +53,15 @@ public enum InputEventType
     /// <summary>
     /// VM is shutting down or restarting.
     /// </summary>
-    VmShutdown
+    VmShutdown,
+
+    /// <summary>
+    /// Mouse wheel scrolled (vertical and/or horizontal). Carries
+    /// <see cref="InputEventData.ScrollDeltaX"/> / <see cref="InputEventData.ScrollDeltaY"/>
+    /// in wheel notches. Appended last so the integer value (10) stays stable across the
+    /// wire and matches the recording contract.
+    /// </summary>
+    MouseWheel
 }
 
 /// <summary>
@@ -71,6 +79,8 @@ public enum InputEventType
 /// <param name="ClipboardText">Clipboard text content (for ClipboardText events).</param>
 /// <param name="ClipboardFileBlobUrls">Blob URLs for clipboard files (for ClipboardFile events).</param>
 /// <param name="ClipboardImageBlobUrl">Blob URL for clipboard image (for ClipboardImage events).</param>
+/// <param name="ScrollDeltaX">Horizontal wheel delta in notches (for MouseWheel events). Positive = right.</param>
+/// <param name="ScrollDeltaY">Vertical wheel delta in notches (for MouseWheel events). Positive = up/away from user.</param>
 public record InputEventData(
     DateTimeOffset Timestamp,
     string SessionId,
@@ -82,5 +92,7 @@ public record InputEventData(
     string? KeyName = null,
     string? ClipboardText = null,
     string[]? ClipboardFileBlobUrls = null,
-    string? ClipboardImageBlobUrl = null
+    string? ClipboardImageBlobUrl = null,
+    int? ScrollDeltaX = null,
+    int? ScrollDeltaY = null
 );
